@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "651493249769",
+    "project_id": "pouch-84f41",
+    "storage_bucket": "pouch-84f41.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:651493249769:android:4e6ee99d025a94bc595678",
+        "android_client_info": {
+          "package_name": "com.pouch"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBi452rCfJkO6HQlbZPbvVfbOARDa3ucrM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
