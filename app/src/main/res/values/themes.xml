@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Window theme only; the real styling is in Compose (ui/theme). Dark, like the Figma design. -->
+    <style name="Theme.Pouch" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#FF0A0A0F</item>
+    </style>
+</resources>
