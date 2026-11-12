@@ -6,12 +6,6 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
-
-/**
- * Data Access Object (DAO) for local Room operations.
- *
- * Flow functions automatically emit new values whenever the underlying SQLite table changes!
- */
 @Dao
 interface PouchDao {
 

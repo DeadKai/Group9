@@ -5,28 +5,40 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-/**
- * Main Room database instance for Pouch.
- */
 @Database(
-    entities = [GroupEntity::class, MemberEntity::class, ReceiptEntity::class],
-    version = 1,
-    exportSchema = false,
+    entities = [
+        User::class,
+        GroupEntity::class,
+        MemberEntity::class,
+        ReceiptEntity::class,
+        ReceiptItemEntity::class,
+        ReceiptItemAssigneeEntity::class,
+        ReceiptPayerEntity::class,
+        ReceiptSplitEntity::class,
+        FriendshipEntity::class,
+    ],
+    version = 2,
+    exportSchema = false
 )
 abstract class PouchDatabase : RoomDatabase() {
-    abstract val dao: PouchDao
+
+    abstract fun pouchDao(): PouchDao
 
     companion object {
         @Volatile
-        private var instance: PouchDatabase? = null
+        private var INSTANCE: PouchDatabase? = null
 
-        fun getInstance(context: Context): PouchDatabase {
-            return instance ?: synchronized(this) {
-                instance ?: Room.databaseBuilder(
+        fun getDatabase(context: Context): PouchDatabase {
+            return INSTANCE ?: synchronized(this) {
+                val instance = Room.databaseBuilder(
                     context.applicationContext,
                     PouchDatabase::class.java,
                     "pouch.db",
-                ).build().also { instance = it }
+                )
+                    .fallbackToDestructiveMigration(true)
+                    .build()
+                INSTANCE = instance
+                instance
             }
         }
     }
