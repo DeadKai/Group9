@@ -18,7 +18,7 @@ data class User(
 )
 
 @Entity(
-    tableName = "groups",
+    tableName = "expense_groups",
     foreignKeys = [
         ForeignKey(
             entity = User::class,
@@ -36,6 +36,7 @@ data class GroupEntity(
     val icon: String, // emoji
     val color: String,
     val createdAt: Long,
+    val modifiedAt: Long = createdAt,
 )
 
 @Entity(
@@ -115,7 +116,8 @@ data class ReceiptEntity(
     val totalCents: Long,
     val splitMethod: String, // "equal", "custom", "by_item"
     val createdAt: Long, // in-app creation timestamp
-    val receiptDate: Long, // actual date on the receipt
+    val modifiedAt: Long = createdAt,
+    val receiptDate: Long?, // actual date on the receipt
 )
 
 @Entity(
@@ -268,5 +270,5 @@ data class FullReceiptDetails(
 data class MemberNetBalance(
     val memberId: String,
     val memberName: String,
-    val netBalanceCents: Long // Positive = owed money, Negative = owes money
+    val netBalanceCents: Long
 )

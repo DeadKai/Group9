@@ -22,7 +22,7 @@ class PouchApp : Application() {
 }
 
 class AppContainer(app: Application) {
-    val database = PouchDatabase.getInstance(app)
+    val database = PouchDatabase.getDatabase(app)
     val authRepository = AuthRepository()
     val groupRepository = GroupRepository(File(app.filesDir, "pouch-data.json"))
     val receiptScanner = ReceiptScanner(app)
