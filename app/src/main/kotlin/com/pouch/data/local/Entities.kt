@@ -10,7 +10,10 @@ import androidx.room.Relation
 
 // user login
 
-@Entity(tableName = "users")
+@Entity(
+    tableName = "users",
+    indices = [Index(value = ["email"], unique = true)]
+)
 data class User(
     @PrimaryKey val uid: String,
     val fullName: String,

@@ -1,8 +1,6 @@
 package com.pouch.data.local
 
 import androidx.room.Dao
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Upsert
@@ -31,7 +29,7 @@ interface PouchDao {
 
     @Query(
         """
-    SELECT users.* FROM users
+    SELECT DISTINCT users.* FROM users
     INNER JOIN friendship ON (users.uid = friendship.friendUserId OR users.uid = friendship.userId)
     WHERE (friendship.userId = :userId OR friendship.friendUserId = :userId)
       AND users.uid != :userId
@@ -63,6 +61,9 @@ interface PouchDao {
     @Query("SELECT * FROM expense_groups WHERE id = :groupId LIMIT 1")
     fun getGroupById(groupId: String): Flow<GroupEntity?>
 
+    @Query("DELETE FROM expense_groups WHERE id = :groupId")
+    suspend fun deleteGroup(groupId: String)
+
     @Query("SELECT * FROM members WHERE groupId = :groupId AND isActive = 1")
     fun getActiveGroupMembers(groupId: String): Flow<List<MemberEntity>>
 
@@ -75,7 +76,7 @@ interface PouchDao {
 
     // receipts
 
-    @Query("SELECT * FROM receipts WHERE groupId = :groupId ORDER BY receiptDate DESC, createdAt DESC")
+    @Query("SELECT * FROM receipts WHERE groupId = :groupId ORDER BY COALESCE(receiptDate, createdAt) DESC, createdAt DESC")
     fun getReceiptsForGroup(groupId: String): Flow<List<ReceiptEntity>>
 
     @Transaction
@@ -85,17 +86,20 @@ interface PouchDao {
     @Upsert
     suspend fun upsertReceipt(receipt: ReceiptEntity)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun insertReceiptItems(items: List<ReceiptItemEntity>)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun insertItemAssignees(assignees: List<ReceiptItemAssigneeEntity>)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun insertReceiptPayers(payers: List<ReceiptPayerEntity>)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun insertReceiptSplits(splits: List<ReceiptSplitEntity>)
+
+    @Query("DELETE FROM receipt_item_assignees WHERE receiptItemId IN (SELECT id FROM receipt_items WHERE receiptId = :receiptId)")
+    suspend fun deleteItemAssigneesForReceipt(receiptId: String)
 
     @Query("DELETE FROM receipt_items WHERE receiptId = :receiptId")
     suspend fun deleteItemsForReceipt(receiptId: String)
@@ -121,6 +125,7 @@ interface PouchDao {
         upsertReceipt(receipt)
 
         // Clear old child rows if editing an existing receipt
+        deleteItemAssigneesForReceipt(receipt.id)
         deleteItemsForReceipt(receipt.id)
         deletePayersForReceipt(receipt.id)
         deleteSplitsForReceipt(receipt.id)

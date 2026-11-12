@@ -17,14 +17,16 @@ import androidx.room.RoomDatabase
         ReceiptSplitEntity::class,
         FriendshipEntity::class,
     ],
-    version = 3,
-    exportSchema = false
+    version = 2,
+    exportSchema = false,
 )
 abstract class PouchDatabase : RoomDatabase() {
 
     abstract fun pouchDao(): PouchDao
 
     companion object {
+        private const val DATABASE_NAME = "pouch.db"
+
         @Volatile
         private var INSTANCE: PouchDatabase? = null
 
@@ -33,7 +35,7 @@ abstract class PouchDatabase : RoomDatabase() {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     PouchDatabase::class.java,
-                    "pouch.db",
+                    DATABASE_NAME,
                 )
                     .fallbackToDestructiveMigration(true)
                     .build()
