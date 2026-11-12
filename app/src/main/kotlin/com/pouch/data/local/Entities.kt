@@ -1,22 +1,42 @@
 package com.pouch.data.local
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
- * Room SQLite Tables for Pouch.
- *
- * Each @Entity represents a table in the local SQLite database.
+ * Each @Entity represents a table in the local database.
  */
 
-@Entity(tableName = "groups")
+@Entity(tableName = "users")
+data class User(
+    @PrimaryKey val uid: String,
+    @ColumnInfo(name = "full_name") val fullName: String,
+    @ColumnInfo(name = "email") val email: String,
+)
+
+
+@Entity(
+    tableName = "groups",
+    foreignKeys = [
+        ForeignKey(
+            entity = User::class,
+            parentColumns = ["uid"],
+            childColumns = ["created_by_user_id"],
+            onDelete = ForeignKey.NO_ACTION,
+        )
+    ],
+    indices = [Index("created_by_user_id")],
+)
 data class GroupEntity(
     @PrimaryKey val id: String,
-    val name: String,
-    val emoji: String,
-    val createdAt: Long,
+    @ColumnInfo(name = "created_by_user_id") val createdByUserId: String,
+    @ColumnInfo(name = "group_name") val name: String,
+    @ColumnInfo(name = "group_icon_id") val icon: String,
+    @ColumnInfo(name = "group_color") val color: String,
+    @ColumnInfo(name = "group_created_at_timestamp") val createdAt: Long,
 )
 
 @Entity(
@@ -27,14 +47,25 @@ data class GroupEntity(
             parentColumns = ["id"],
             childColumns = ["groupId"],
             onDelete = ForeignKey.CASCADE,
+        ),
+        ForeignKey(
+            entity = User::class,
+            parentColumns = ["uid"],
+            childColumns = ["userId"],
+            onDelete = ForeignKey.SET_NULL,
         )
     ],
-    indices = [Index("groupId")],
+    indices = [
+        Index("groupId"),
+        Index("userId"),
+    ],
 )
+
 data class MemberEntity(
     @PrimaryKey val id: String,
-    val groupId: String,
-    val name: String,
+    @ColumnInfo(name = "group_id") val groupId: String,
+    @ColumnInfo(name = "user_id") val userId: String?,
+    @ColumnInfo(name = "member_name") val name: String,
 )
 
 @Entity(
@@ -51,9 +82,9 @@ data class MemberEntity(
 )
 data class ReceiptEntity(
     @PrimaryKey val id: String,
-    val groupId: String,
-    val title: String,
-    val totalCents: Long,
-    val paidByMemberId: String,
-    val createdAt: Long,
+    @ColumnInfo(name = "group_id") val groupId: String,
+    @ColumnInfo(name = "expense_name") val expenseName: String,
+    @ColumnInfo(name = "receipt_total_amount_cents") val totalCents: Long,
+    @ColumnInfo(name = "paid_by_member_id") val paidByMemberId: String,
+    @ColumnInfo(name = "receipt_created_at_timestamp") val createdAt: Long,
 )
