@@ -37,7 +37,6 @@ private val PouchShapes = Shapes(
     extraLarge = RoundedCornerShape(24.dp),
 )
 
-/** Dark-only theme matching the Figma design system. */
 @Composable
 fun PouchTheme(content: @Composable () -> Unit) {
     MaterialTheme(

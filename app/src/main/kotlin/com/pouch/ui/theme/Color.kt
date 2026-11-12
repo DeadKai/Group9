@@ -2,7 +2,6 @@ package com.pouch.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Colors from the Stage 2 design system
 object PouchColors {
     val Background = Color(0xFF0A0A0F)
     val Surface = Color(0xFF111118)
