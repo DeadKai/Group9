@@ -6,8 +6,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-// Typography scale from the design system.
-// TODO(design): add Outfit + DM Serif Display .ttf files to res/font and use them here.
 private val Body = FontFamily.Default
 private val Display = FontFamily.Serif
 

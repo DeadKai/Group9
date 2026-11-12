@@ -7,10 +7,6 @@ import com.pouch.data.local.PouchDatabase
 import com.pouch.ocr.ReceiptScanner
 import java.io.File
 
-/**
- * Creates the app's shared objects once ("manual dependency injection").
- * ViewModels get what they need from [container].
- */
 class PouchApp : Application() {
     lateinit var container: AppContainer
         private set
@@ -23,7 +19,7 @@ class PouchApp : Application() {
 
 class AppContainer(app: Application) {
     val database = PouchDatabase.getDatabase(app)
-    val authRepository = AuthRepository()
+    val authRepository = AuthRepository(pouchDao = database.pouchDao())
     val groupRepository = GroupRepository(File(app.filesDir, "pouch-data.json"))
     val receiptScanner = ReceiptScanner(app)
 }
