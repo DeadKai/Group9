@@ -145,6 +145,7 @@ fun AuthScreen(
             Text(if (isSignUp) "Already have an account? Sign In" else "Need an account? Sign Up")
         }
 
+        // FIXME: REMOVE DEV LOGIN BYPASS
         TextButton(onClick = { viewModel.bypassLogin() }) {
             Text("Skip Login (Dev Bypass)")
         }
