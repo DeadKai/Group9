@@ -1,5 +1,6 @@
 package com.pouch.data
 
+import com.google.firebase.firestore.FirebaseFirestore
 import com.pouch.domain.Group
 import com.pouch.domain.Member
 import com.pouch.domain.Receipt
@@ -11,6 +12,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -20,22 +22,16 @@ import java.util.UUID
 @Serializable
 private data class PouchData(val groups: List<Group> = emptyList())
 
-/**
- * Single source of truth for groups, members and receipts.
- *
- * For now the data is saved as a JSON file in the app's private storage, so the app works
- * fully offline. The rest of the app only talks to this class, so it can later be switched
- * to Room + a backend API without touching the screens.
- */
-class GroupRepository(private val file: File) {
-
+class GroupRepository(
+    private val file: File,
+    firestore: FirebaseFirestore = FirebaseFirestore.getInstance()
+) {
     private val json = Json { ignoreUnknownKeys = true }
     private val mutex = Mutex()
+    private val groupsCollection = firestore.collection("groups")
 
-    /** null = not loaded from disk yet. */
     private val state = MutableStateFlow<List<Group>?>(null)
 
-    /** All groups, newest first. Updates automatically after every change. */
     val groups: Flow<List<Group>> = state
         .onStart { ensureLoaded() }
         .filterNotNull()
@@ -44,16 +40,16 @@ class GroupRepository(private val file: File) {
     fun observeGroup(groupId: String): Flow<Group?> =
         groups.map { list -> list.firstOrNull { it.id == groupId } }
 
-    /** Creates a group. "You" is always the first member. Returns the new group id. */
-    suspend fun createGroup(name: String, emoji: String, otherMembers: List<String>): String {
+    suspend fun createGroup(name: String, icon: String, otherMembers: List<String>): String {
         val group = Group(
             id = newId(),
             name = name.trim(),
-            emoji = emoji,
+            icon = icon,
             createdAt = System.currentTimeMillis(),
             members = (listOf("You") + otherMembers).map { Member(newId(), it.trim()) },
         )
         update { it + group }
+        saveGroupToCloud(group)
         return group.id
     }
 
@@ -65,7 +61,12 @@ class GroupRepository(private val file: File) {
         group.copy(members = group.members.filterNot { it.id == memberId })
     }
 
-    suspend fun addReceipt(groupId: String, title: String, totalCents: Long, paidByMemberId: String) =
+    suspend fun addReceipt(
+        groupId: String,
+        title: String,
+        totalCents: Long,
+        paidByMemberId: String
+    ) =
         updateGroup(groupId) { group ->
             val receipt = Receipt(
                 id = newId(),
@@ -82,15 +83,42 @@ class GroupRepository(private val file: File) {
         group.copy(receipts = group.receipts.filterNot { it.id == receiptId })
     }
 
-    // ---- internals ----
+    private fun saveGroupToCloud(group: Group) {
+        groupsCollection.document(group.id).set(group)
+    }
+
+    suspend fun syncFromCloud() {
+        try {
+            val snapshot = groupsCollection.get().await()
+            val cloudGroups = snapshot.toObjects(Group::class.java)
+            if (cloudGroups.isNotEmpty()) {
+                update { cloudGroups }
+            }
+        } catch (e: Exception) {
+            // offline or network error: keep using the local JSON data
+        }
+    }
 
     private fun newId() = UUID.randomUUID().toString()
 
-    private suspend fun updateGroup(groupId: String, change: (Group) -> Group) =
-        update { list -> list.map { if (it.id == groupId) change(it) else it } }
+    private suspend fun updateGroup(groupId: String, change: (Group) -> Group) {
+        update { list ->
+            list.map { group ->
+                if (group.id == groupId) {
+                    val updated = change(group)
+                    saveGroupToCloud(updated)
+                    updated
+                } else {
+                    group
+                }
+            }
+        }
+    }
+
 
     private suspend fun ensureLoaded() = withContext(Dispatchers.IO) {
         mutex.withLock { loadLocked() }
+        syncFromCloud()
     }
 
     private fun loadLocked() {
@@ -98,7 +126,6 @@ class GroupRepository(private val file: File) {
         state.value = try {
             if (file.exists()) json.decodeFromString<PouchData>(file.readText()).groups else emptyList()
         } catch (e: Exception) {
-            // Damaged file: keep a copy for debugging and start fresh instead of crashing.
             file.copyTo(File(file.parentFile, "${file.name}.broken"), overwrite = true)
             emptyList()
         }
@@ -108,7 +135,6 @@ class GroupRepository(private val file: File) {
         mutex.withLock {
             loadLocked()
             val newList = change(state.value.orEmpty())
-            // Write to a temp file first so a crash mid-write can't corrupt the real file.
             val tmp = File(file.parentFile, "${file.name}.tmp")
             tmp.writeText(json.encodeToString(PouchData.serializer(), PouchData(newList)))
             if (!tmp.renameTo(file)) {
