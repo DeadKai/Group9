@@ -70,7 +70,7 @@ fun GroupScreen(
 
     LaunchedEffect(message) { message?.let { snackbar.showSnackbar(it); viewModel.messageShown() } }
 
-    val title = (state as? UiState.Success)?.data?.group?.let { "${it.emoji} ${it.name}" } ?: "Group"
+    val title = (state as? UiState.Success)?.data?.group?.let { "${it.icon} ${it.name}" } ?: "Group"
 
     Scaffold(
         topBar = { BackTopBar(title, onBack) },

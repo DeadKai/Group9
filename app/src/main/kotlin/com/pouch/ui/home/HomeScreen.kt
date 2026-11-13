@@ -120,7 +120,7 @@ private fun GroupList(groups: List<Group>, onOpenGroup: (String) -> Unit, modifi
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(group.emoji, style = MaterialTheme.typography.headlineSmall)
+                    Text(group.icon, style = MaterialTheme.typography.headlineSmall)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(group.name, style = MaterialTheme.typography.titleSmall)
