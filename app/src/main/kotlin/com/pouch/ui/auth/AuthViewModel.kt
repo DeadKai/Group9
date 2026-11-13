@@ -74,20 +74,18 @@ class AuthViewModel(
         errorMessage = message
     }
 
-    fun signOut() {
-        isBypassed = false
-        authRepository.signOut()
-    }
-
-    var isBypassed by mutableStateOf(false) // Change to `true` if you want it to auto-skip on launch!
+    var isBypassed by mutableStateOf(false)
         private set
+
     // FIXME: REMOVE DEV LOGIN BYPASS BEFORE FINAL SUBMISSION
     @Deprecated("Temporary dev bypass - remove before submitting!")
     fun bypassLogin() {
-        viewModelScope.launch {
-            authRepository.loginAsDev()
-            isBypassed = true
-        }
+        isBypassed = true
+    }
+
+    fun signOut() {
+        isBypassed = false
+        authRepository.signOut()
     }
 
     companion object {

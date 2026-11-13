@@ -3,6 +3,7 @@ package com.pouch.ui.navigation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -30,7 +31,7 @@ data class GroupRoute(val groupId: String)
 fun PouchNavHost(navController: NavHostController = rememberNavController(),
                  authViewModel: AuthViewModel = viewModel(factory = AuthViewModel.Factory)) {
 
-    val currentUser by authViewModel.currentUser.collectAsState()
+    val currentUser by authViewModel.currentUser.collectAsStateWithLifecycle()
 
     // FIXME: REMOVE DEV LOGIN BYPASS BEFORE FINAL SUBMISSION
     if (currentUser == null && !authViewModel.isBypassed) {
