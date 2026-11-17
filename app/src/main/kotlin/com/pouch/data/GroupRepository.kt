@@ -4,6 +4,8 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.pouch.domain.Group
 import com.pouch.domain.Member
 import com.pouch.domain.Receipt
+import com.pouch.domain.MemberAmount
+import com.pouch.domain.SplitMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -61,6 +63,49 @@ class GroupRepository(
         group.copy(members = group.members.filterNot { it.id == memberId })
     }
 
+    suspend fun addReceipt(groupId: String, title: String, totalCents: Long, payments: List<MemberAmount>, shares: List<MemberAmount>, splitMode: SplitMode) = updateGroup(groupId) { group ->
+
+        require(title.isNotBlank() && title.length <= 60)
+        require(totalCents > 0)
+
+        val memberIds = group.members.map { it.id }.toSet()
+
+        fun valid(entries: List<MemberAmount>): Boolean =
+            entries.isNotEmpty() &&
+                    entries.all {
+                        it.memberId in memberIds &&
+                                it.amountCents >= 0
+                    } &&
+                    entries.map { it.memberId }.distinct().size ==
+                    entries.size &&
+                    entries.sumOf { it.amountCents } == totalCents
+
+        require(valid(payments)) {
+            "Payments must add up to the receipt total"
+        }
+
+        require(valid(shares)) {
+            "Shares must add up to the receipt total"
+        }
+
+        val receipt = Receipt(
+            id = newId(),
+            groupId = groupId,
+            title = title.trim(),
+            totalCents = totalCents,
+            paidByMemberId = payments.first {
+                it.amountCents > 0
+            }.memberId,
+            createdAt = System.currentTimeMillis(),
+            payments = payments.filter { it.amountCents > 0 },
+            shares = shares.filter { it.amountCents > 0 },
+            splitMode = splitMode
+        )
+
+        group.copy(
+            receipts = listOf(receipt) + group.receipts
+        )
+    }
     suspend fun addReceipt(
         groupId: String,
         title: String,
@@ -81,6 +126,50 @@ class GroupRepository(
 
     suspend fun deleteReceipt(groupId: String, receiptId: String) = updateGroup(groupId) { group ->
         group.copy(receipts = group.receipts.filterNot { it.id == receiptId })
+    }
+    suspend fun updateReceipt(groupId: String, receiptId: String, title: String,totalCents: Long, payments: List<MemberAmount>, shares: List<MemberAmount>, splitMode: SplitMode) = updateGroup(groupId) { group ->
+
+        require(title.isNotBlank() && title.length <= 60)
+        require(totalCents > 0)
+        require(group.receipts.any { it.id == receiptId })
+
+        val memberIds = group.members.map { it.id }.toSet()
+
+        fun valid(entries: List<MemberAmount>): Boolean =
+            entries.isNotEmpty() &&
+                    entries.all {
+                        it.memberId in memberIds &&
+                                it.amountCents >= 0
+                    } &&
+                    entries.map { it.memberId }.distinct().size ==
+                    entries.size &&
+                    entries.sumOf { it.amountCents } == totalCents
+
+        require(valid(payments))
+        require(valid(shares))
+
+        group.copy(
+            receipts = group.receipts.map { receipt ->
+                if (receipt.id == receiptId) {
+                    receipt.copy(
+                        title = title.trim(),
+                        totalCents = totalCents,
+                        paidByMemberId = payments.first {
+                            it.amountCents > 0
+                        }.memberId,
+                        payments = payments.filter {
+                            it.amountCents > 0
+                        },
+                        shares = shares.filter {
+                            it.amountCents > 0
+                        },
+                        splitMode = splitMode
+                    )
+                } else {
+                    receipt
+                }
+            }
+        )
     }
 
     private fun saveGroupToCloud(group: Group) {

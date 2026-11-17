@@ -1,9 +1,5 @@
 package com.pouch.domain
 
-
-
-
-
 /**
  * Pure Kotlin split logic (no Android dependencies) so it can be unit tested.
  *
@@ -23,26 +19,71 @@ object SplitCalculator {
         return List(parts) { index -> if (index < remainder) base + 1 else base }
     }
 
+
     /**
-     * Net balance per member: positive = others owe them, negative = they owe.
-     * The sum of all balances is always 0.
+     * Calculates net balance for every member.
+     *
+     * Positive = others owe this member.
+     * Negative = this member owes others.
+     *
+     * Balance = amount paid - amount owed.
      */
-    fun balances(members: List<Member>, receipts: List<Receipt>): Map<String, Long> {
-        val balance = members.associate { it.id to 0L }.toMutableMap()
-        if (members.isEmpty()) return balance
+    fun balances(
+        members: List<Member>,
+        receipts: List<Receipt>
+    ): Map<String, Long> {
+
+        val balance = members.associate {
+            it.id to 0L
+        }.toMutableMap()
 
         for (receipt in receipts) {
-            val shares = equalShares(receipt.totalCents, members.size)
-            members.forEachIndexed { i, member ->
-                balance[member.id] = balance.getValue(member.id) - shares[i]
+
+            for (payment in effectivePayments(receipt)) {
+                if (payment.memberId in balance) {
+                    balance[payment.memberId] =
+                        balance.getValue(payment.memberId) +
+                                payment.amountCents
+                }
             }
-            if (receipt.paidByMemberId in balance) {
-                balance[receipt.paidByMemberId] = balance.getValue(receipt.paidByMemberId) + receipt.totalCents
+
+            for (share in effectiveShares(receipt, members)) {
+                if (share.memberId in balance) {
+                    balance[share.memberId] =
+                        balance.getValue(share.memberId) -
+                                share.amountCents
+                }
             }
         }
+
         return balance
     }
+    fun effectivePayments(receipt: Receipt): List<MemberAmount> =
+        receipt.payments.ifEmpty {
+            listOf(
+                MemberAmount(
+                    receipt.paidByMemberId,
+                    receipt.totalCents
+                )
+            )
+        }
 
+    fun effectiveShares(
+        receipt: Receipt,
+        members: List<Member>
+    ): List<MemberAmount> {
+        if (receipt.shares.isNotEmpty()) {
+            return receipt.shares
+        }
+
+        if (members.isEmpty()) return emptyList()
+
+        val amounts = equalShares(receipt.totalCents, members.size)
+
+        return members.zip(amounts) { member, amount ->
+            MemberAmount(member.id, amount)
+        }
+    }
     /**
      * Turns balances into a short list of payments ("Alex owes Sarah €14.50").
      * Greedy: biggest debtor pays biggest creditor until everyone is at 0.

@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pouch.data.GroupRepository
 import com.pouch.domain.Group
+import com.pouch.domain.MemberAmount
+import com.pouch.domain.SplitMode
 import com.pouch.domain.Member
 import com.pouch.domain.Receipt
 import com.pouch.domain.Settlement
@@ -66,18 +68,44 @@ class GroupViewModel(
     }
 
     fun removeMember(member: Member) {
-        val details = (state.value as? UiState.Success)?.data ?: return
+        val details =
+            (state.value as? UiState.Success)?.data ?: return
+
+        val group = details.group
+
+        val involvedInReceipt = group.receipts.any { receipt ->
+            SplitCalculator.effectivePayments(receipt).any {
+                it.memberId == member.id
+            } ||
+                    SplitCalculator.effectiveShares(
+                        receipt,
+                        group.members
+                    ).any {
+                        it.memberId == member.id
+                    }
+        }
+
         when {
-            details.group.members.size <= 2 ->
-                _message.value = "A group needs at least two members"
-            details.group.receipts.any { it.paidByMemberId == member.id } ->
-                _message.value = "${member.name} paid a receipt in this group. Delete that receipt first."
-            else -> viewModelScope.launch {
-                repository.removeMember(groupId, member.id)
-                _message.value = "${member.name} removed"
+            group.members.size <= 2 -> {
+                _message.value =
+                    "A group needs at least two members"
+            }
+
+            involvedInReceipt -> {
+                _message.value =
+                    "${member.name} is involved in an existing receipt. Delete or update those receipts first."
+            }
+
+            else -> {
+                viewModelScope.launch {
+                    repository.removeMember(groupId, member.id)
+                    _message.value = "${member.name} removed"
+                }
             }
         }
     }
+
+
 
     fun deleteReceipt(receipt: Receipt) {
         viewModelScope.launch {
@@ -85,4 +113,33 @@ class GroupViewModel(
             _message.value = "Receipt deleted"
         }
     }
+    fun updateReceipt(
+        receipt: Receipt,
+        title: String,
+        amountCents: Long,
+        payments: List<MemberAmount>,
+        shares: List<MemberAmount>,
+        splitMode: SplitMode
+    ) {
+        viewModelScope.launch {
+            try {
+                repository.updateReceipt(
+                    groupId = groupId,
+                    receiptId = receipt.id,
+                    title = title,
+                    totalCents = amountCents,
+                    payments = payments,
+                    shares = shares,
+                    splitMode = splitMode
+                )
+
+                _message.value = "Expense updated"
+
+            } catch (e: Exception) {
+                _message.value =
+                    e.message ?: "Failed to update expense"
+            }
+        }
+    }
+
 }

@@ -39,6 +39,17 @@ data class ReceiptSplit(
     val memberId: String = "",
     val amountOwedCents: Long = 0L,
 )
+@Serializable
+data class MemberAmount(
+    val memberId: String,
+    val amountCents: Long
+)
+
+@Serializable
+enum class SplitMode {
+    EQUAL,
+    CUSTOM
+}
 
 @Serializable
 data class Receipt(
@@ -47,13 +58,24 @@ data class Receipt(
     val title: String = "",
     val totalCents: Long = 0L,
     val paidByMemberId: String = "",
-    val splitMethod: String = "equal", // "equal", "custom", "by_item"
     val createdAt: Long = 0L,
+
+    // Payments and shares
+    val payments: List<MemberAmount> = emptyList(),
+    val shares: List<MemberAmount> = emptyList(),
+
+    // Split configuration
+    val splitMode: SplitMode = SplitMode.EQUAL,
+    val splitMethod: String = "equal",
+
+    // Dates
     val modifiedAt: Long = createdAt,
     val receiptDate: Long? = null,
+
+    // Receipt details
     val items: List<ReceiptItem> = emptyList(),
     val payers: List<ReceiptPayer> = emptyList(),
-    val splits: List<ReceiptSplit> = emptyList(),
+    val splits: List<ReceiptSplit> = emptyList()
 )
 
 @Serializable

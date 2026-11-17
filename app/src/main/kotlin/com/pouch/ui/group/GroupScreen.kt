@@ -2,6 +2,9 @@ package com.pouch.ui.group
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -38,10 +42,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.material.icons.filled.Edit
 import com.pouch.domain.Member
 import com.pouch.domain.Receipt
 import com.pouch.domain.formatMoney
+import com.pouch.domain.MemberAmount
+import com.pouch.domain.SplitMode
+import com.pouch.domain.SplitCalculator
 import com.pouch.ui.common.BackTopBar
+import com.pouch.ui.common.ReceiptSplitEditor
+import com.pouch.ui.common.parseCents
+import com.pouch.ui.common.centsText
 import com.pouch.ui.common.EmptyView
 import com.pouch.ui.common.ErrorView
 import com.pouch.ui.common.LoadingView
@@ -67,6 +78,7 @@ fun GroupScreen(
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var showAddMember by remember { mutableStateOf(false) }
     var receiptToDelete by remember { mutableStateOf<Receipt?>(null) }
+    var receiptToEdit by remember { mutableStateOf<Receipt?>(null) }
 
     LaunchedEffect(message) { message?.let { snackbar.showSnackbar(it); viewModel.messageShown() } }
 
@@ -83,6 +95,7 @@ fun GroupScreen(
                         icon = { Icon(Icons.Default.Add, null) },
                         text = { Text("Add receipt") },
                     )
+
                     2 -> ExtendedFloatingActionButton(
                         onClick = { showAddMember = true },
                         icon = { Icon(Icons.Default.Add, null) },
@@ -105,9 +118,17 @@ fun GroupScreen(
                         }
                     }
                     when (tab) {
-                        0 -> ReceiptsTab(details, onAddReceipt, onDelete = { receiptToDelete = it })
+                        0 -> ReceiptsTab(
+                            details,
+                            onAddReceipt,
+                            onDelete = { receiptToDelete = it },
+                            onEdit = { receiptToEdit = it })
+
                         1 -> BalancesTab(details)
-                        else -> MembersTab(details.group.members, onRemove = viewModel::removeMember)
+                        else -> MembersTab(
+                            details.group.members,
+                            onRemove = viewModel::removeMember
+                        )
                     }
                 }
             }
@@ -139,10 +160,35 @@ fun GroupScreen(
             dismissButton = { TextButton(onClick = { receiptToDelete = null }) { Text("Cancel") } },
         )
     }
-}
 
+    receiptToEdit?.let { receipt ->
+        val details = (state as? UiState.Success)?.data
+
+        if (details != null) {
+            EditReceiptDialog(
+                receipt = receipt,
+                members = details.group.members,
+                onDismiss = {
+                    receiptToEdit = null
+                },
+                onSave = { title, cents, payments, shares, mode ->
+                    viewModel.updateReceipt(
+                        receipt = receipt,
+                        title = title,
+                        amountCents = cents,
+                        payments = payments,
+                        shares = shares,
+                        splitMode = mode
+                    )
+
+                    receiptToEdit = null
+                }
+            )
+        }
+    }
+}
 @Composable
-private fun ReceiptsTab(details: GroupDetails, onAddReceipt: () -> Unit, onDelete: (Receipt) -> Unit) {
+private fun ReceiptsTab(details: GroupDetails, onAddReceipt: () -> Unit, onDelete: (Receipt) -> Unit, onEdit: (Receipt) -> Unit){
     if (details.group.receipts.isEmpty()) {
         EmptyView(
             title = "No receipts yet",
@@ -165,6 +211,12 @@ private fun ReceiptsTab(details: GroupDetails, onAddReceipt: () -> Unit, onDelet
                     )
                 }
                 Text(receipt.totalCents.formatMoney(), style = MaterialTheme.typography.titleSmall)
+                IconButton(onClick = { onEdit(receipt) }) {
+                    Icon(
+                        Icons.Default.Edit,
+                        contentDescription = "Edit ${receipt.title}"
+                    )
+                }
                 IconButton(onClick = { onDelete(receipt) }) {
                     Icon(Icons.Default.Delete, contentDescription = "Delete ${receipt.title}")
                 }
@@ -250,4 +302,230 @@ private fun ListCard(content: @Composable androidx.compose.foundation.layout.Row
             content = content,
         )
     }
+
+}
+
+@Composable
+private fun EditReceiptDialog(
+    receipt: Receipt,
+    members: List<Member>,
+    onDismiss: () -> Unit,
+    onSave: (
+        String,
+        Long,
+        List<MemberAmount>,
+        List<MemberAmount>,
+        SplitMode
+    ) -> Unit
+) {
+    var title by remember(receipt.id) {
+        mutableStateOf(receipt.title)
+    }
+
+    var amount by remember(receipt.id) {
+        mutableStateOf(centsText(receipt.totalCents))
+    }
+
+    var payments by remember(receipt.id) {
+        mutableStateOf(
+            SplitCalculator.effectivePayments(receipt)
+                .associate { it.memberId to it.amountCents }
+        )
+    }
+
+    var shares by remember(receipt.id) {
+        mutableStateOf(
+            SplitCalculator.effectiveShares(receipt, members)
+                .associate { it.memberId to it.amountCents }
+        )
+    }
+
+    var splitMode by remember(receipt.id) {
+        mutableStateOf(receipt.splitMode)
+    }
+
+    var error by remember(receipt.id) {
+        mutableStateOf<String?>(null)
+    }
+
+    val total = parseCents(amount) ?: 0L
+
+    val equalShares = if (members.isNotEmpty()) {
+        SplitCalculator.equalShares(total, members.size)
+    } else {
+        emptyList()
+    }
+
+    val equalShareValues =
+        members.mapIndexed { index, member ->
+            member.id to equalShares[index]
+        }.toMap()
+
+    val displayedShares =
+        if (splitMode == SplitMode.EQUAL)
+            equalShareValues
+        else
+            shares
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit expense") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 500.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                ValidatedTextField(
+                    value = title,
+                    onValueChange = {
+                        title = it
+                        error = null
+                    },
+                    label = "Expense name",
+                    error = null
+                )
+
+                ValidatedTextField(
+                    value = amount,
+                    onValueChange = {
+                        amount = it
+                        error = null
+                    },
+                    label = "Amount (€)",
+                    error = null
+                )
+
+                Row(
+                    horizontalArrangement =
+                        Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = splitMode == SplitMode.EQUAL,
+                        onClick = {
+                            splitMode = SplitMode.EQUAL
+                            shares = equalShareValues
+                            error = null
+                        },
+                        label = { Text("Equal split") }
+                    )
+
+                    FilterChip(
+                        selected = splitMode == SplitMode.CUSTOM,
+                        onClick = {
+                            if (splitMode != SplitMode.CUSTOM) {
+                                shares = equalShareValues
+                            }
+                            splitMode = SplitMode.CUSTOM
+                            error = null
+                        },
+                        label = { Text("Custom split") }
+                    )
+                }
+
+
+                ReceiptSplitEditor(
+                    members = members,
+                    totalCents = total,
+                    payments = payments,
+                    shares = displayedShares,
+                    splitMode = splitMode,
+                    onSplitModeChange = { mode ->
+                        if (mode == SplitMode.EQUAL) {
+                            shares = equalShareValues
+                        } else if (splitMode == SplitMode.EQUAL) {
+                            shares = equalShareValues
+                        }
+
+                        splitMode = mode
+                        error = null
+                    },
+                    onPaymentsChange = {
+                        payments = it
+                        error = null
+                    },
+                    onSharesChange = {
+                        shares = it
+                        splitMode = SplitMode.CUSTOM
+                        error = null
+                    }
+                )
+
+                if (error != null) {
+                    Text(
+                        text = error.orEmpty(),
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val cents = parseCents(amount)
+                    val memberIds = members.map { it.id }.toSet()
+
+                    fun valid(values: Map<String, Long>): Boolean {
+                        if (cents == null || cents <= 0L)
+                            return false
+                        if (values.isEmpty())
+                            return false
+                        if (values.keys.any { it !in memberIds })
+                            return false
+                        if (values.values.any { it < 0L })
+                            return false
+
+                        val sum = try {
+                            values.values.fold(0L) { acc, value ->
+                                Math.addExact(acc, value)
+                            }
+                        } catch (_: ArithmeticException) {
+                            return false
+                        }
+
+                        return sum == cents
+                    }
+
+                    when {
+                        title.isBlank() ->
+                            error = "Enter expense name"
+
+                        title.trim().length > 60 ->
+                            error = "Keep it under 60 characters"
+
+                        cents == null || cents <= 0L ->
+                            error = "Enter a valid amount"
+
+                        !valid(payments) ->
+                            error = "Payments must equal the total"
+
+                        !valid(displayedShares) ->
+                            error = "Shares must equal the total"
+
+                        else -> {
+                            onSave(
+                                title.trim(),
+                                cents,
+                                payments.map { (id, value) ->
+                                    MemberAmount(id, value)
+                                },
+                                displayedShares.map { (id, value) ->
+                                    MemberAmount(id, value)
+                                },
+                                splitMode
+                            )
+                        }
+                    }
+                }
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }

@@ -5,7 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pouch.data.GroupRepository
 import com.pouch.domain.Group
+import com.pouch.domain.MemberAmount
 import com.pouch.domain.SplitCalculator
+import com.pouch.domain.SplitMode
 import com.pouch.ocr.ReceiptScanner
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,6 +36,10 @@ data class ScanUiState(
     val paidByError: String? = null,
     val isSaving: Boolean = false,
     val saved: Boolean = false,
+    val payments: Map<String, Long> = emptyMap(),
+    val shares: Map<String, Long> = emptyMap(),
+    val splitMode: SplitMode = SplitMode.EQUAL,
+    val allocationError: String? = null
 ) {
     val selectedGroup: Group? get() = groups.firstOrNull { it.id == selectedGroupId }
 
@@ -62,7 +68,12 @@ class ScanViewModel(
     private val scanner: ReceiptScanner,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(ScanUiState(groupLocked = presetGroupId != null, selectedGroupId = presetGroupId))
+    private val _state = MutableStateFlow(
+        ScanUiState(
+            groupLocked = presetGroupId != null,
+            selectedGroupId = presetGroupId
+        )
+    )
     val state: StateFlow<ScanUiState> = _state.asStateFlow()
 
     init {
@@ -106,7 +117,10 @@ class ScanViewModel(
                 throw e
             } catch (e: Exception) {
                 _state.update {
-                    it.copy(step = ScanStep.EDIT, scanMessage = "Couldn't read this photo. Enter the details manually or try a sharper photo.")
+                    it.copy(
+                        step = ScanStep.EDIT,
+                        scanMessage = "Couldn't read this photo. Enter the details manually or try a sharper photo."
+                    )
                 }
             }
         }
@@ -117,41 +131,253 @@ class ScanViewModel(
 
     fun onTitleChange(v: String) = _state.update { it.copy(title = v, titleError = null) }
     fun onAmountChange(v: String) = _state.update { it.copy(amount = v, amountError = null) }
-    fun onPaidByChange(id: String) = _state.update { it.copy(paidByMemberId = id, paidByError = null) }
+    fun onPaidByChange(id: String) =
+        _state.update { it.copy(paidByMemberId = id, paidByError = null) }
 
     fun onGroupSelected(groupId: String) = _state.update { s ->
         val group = s.groups.firstOrNull { it.id == groupId }
-        s.copy(selectedGroupId = groupId, groupError = null, paidByMemberId = group?.members?.firstOrNull()?.id)
+        s.copy(
+            selectedGroupId = groupId,
+            groupError = null,
+            paidByMemberId = group?.members?.firstOrNull()?.id
+        )
+    }
+
+    fun onPaymentsChange(payments: Map<String, Long>) {
+        _state.update {
+            it.copy(
+                payments = payments,
+                allocationError = null
+            )
+        }
+    }
+
+    fun onSharesChange(shares: Map<String, Long>) {
+        _state.update {
+            it.copy(
+                shares = shares,
+                splitMode = SplitMode.CUSTOM,
+                allocationError = null
+            )
+        }
+    }
+
+
+    fun onSplitModeChange(mode: SplitMode) {
+        _state.update { s ->
+            val total = parseAmountToCents(s.amount) ?: 0L
+            val members = s.selectedGroup?.members.orEmpty()
+
+            val equalShares = if (members.isNotEmpty()) {
+                SplitCalculator.equalShares(total, members.size)
+            } else {
+                emptyList()
+            }
+
+            val equalMap = members.mapIndexed { index, member ->
+                member.id to equalShares[index]
+            }.toMap()
+
+            s.copy(
+                splitMode = mode,
+                shares = if (mode == SplitMode.EQUAL ||
+                    s.splitMode == SplitMode.EQUAL
+                ) {
+                    equalMap
+                } else {
+                    s.shares
+                },
+                allocationError = null
+            )
+        }
     }
 
     fun save() {
         val s = _state.value
-        val cents = parseAmountToCents(s.amount)
-        val titleError = when {
-            s.title.isBlank() -> "What was it for? (e.g. Groceries)"
-            s.title.length > 60 -> "Keep it under 60 characters"
-            else -> null
-        }
-        val amountError = when {
-            s.amount.isBlank() -> "Enter the total amount"
-            cents == null -> "Use a number like 12.50"
-            cents <= 0 -> "Amount must be more than 0"
-            else -> null
-        }
-        val groupError = if (s.selectedGroup == null) "Choose a group" else null
-        val paidByError = if (s.selectedGroup != null && s.paidByMemberId == null) "Choose who paid" else null
 
-        if (listOf(titleError, amountError, groupError, paidByError).any { it != null }) {
+        if (s.isSaving) return
+
+        val cents = parseAmountToCents(s.amount)
+
+        val titleError = when {
+            s.title.isBlank() ->
+                "What was it for? (e.g. Groceries)"
+
+            s.title.trim().length > 60 ->
+                "Keep it under 60 characters"
+
+            else -> null
+        }
+
+        val amountError = when {
+            s.amount.isBlank() ->
+                "Enter the total amount"
+
+            cents == null ->
+                "Use a number like 12.50"
+
+            cents <= 0L ->
+                "Amount must be more than 0"
+
+            else -> null
+        }
+
+        val group = s.selectedGroup
+
+        val groupError = when {
+            group == null -> "Choose a group"
+            group.members.isEmpty() -> "Group has no members"
+            else -> null
+        }
+
+        if (
+            titleError != null ||
+            amountError != null ||
+            groupError != null
+        ) {
             _state.update {
-                it.copy(titleError = titleError, amountError = amountError, groupError = groupError, paidByError = paidByError)
+                it.copy(
+                    titleError = titleError,
+                    amountError = amountError,
+                    groupError = groupError,
+                    allocationError = null
+                )
             }
             return
         }
 
-        _state.update { it.copy(isSaving = true) }
+        val validGroup = group ?: return
+        val total = cents ?: return
+        val members = validGroup.members
+        val memberIds = members.map { it.id }.toSet()
+
+        // Default payer is the first group member.
+        val payerId = s.paidByMemberId
+            ?.takeIf { it in memberIds }
+            ?: members.first().id
+
+        // Payments: how much each member actually paid.
+        val paymentValues: Map<String, Long> =
+            if (s.payments.isEmpty()) {
+                mapOf(payerId to total)
+            } else {
+                s.payments
+            }
+
+        // Calculate equal shares as the default.
+        val equalAmounts = SplitCalculator.equalShares(
+            total,
+            members.size
+        )
+
+        val equalShareValues: Map<String, Long> =
+            members.mapIndexed { index, member ->
+                member.id to equalAmounts[index]
+            }.toMap()
+
+        // Shares: how much each member owes.
+        val shareValues: Map<String, Long> =
+            if (s.splitMode == SplitMode.EQUAL) {
+                equalShareValues
+            } else if (s.shares.isEmpty()) {
+                equalShareValues
+            } else {
+                s.shares
+            }
+
+        // Validate that every allocation belongs to a group member,
+        // is nonnegative, and sums to the receipt total.
+        fun validAllocation(values: Map<String, Long>): Boolean {
+            if (values.isEmpty()) return false
+
+            if (values.keys.any { it !in memberIds }) {
+                return false
+            }
+
+            if (values.values.any { it < 0L }) {
+                return false
+            }
+
+            val sum = try {
+                values.values.fold(0L) { acc, value ->
+                    Math.addExact(acc, value)
+                }
+            } catch (_: ArithmeticException) {
+                return false
+            }
+
+            return sum == total
+        }
+
+        val allocationError = when {
+            !validAllocation(paymentValues) ->
+                "Payments must add up to the receipt total"
+
+            !validAllocation(shareValues) ->
+                "Shares must add up to the receipt total"
+
+            else -> null
+        }
+
+        if (allocationError != null) {
+            _state.update {
+                it.copy(allocationError = allocationError)
+            }
+            return
+        }
+
+        // Convert maps into the lists required by GroupRepository.
+        val payments = paymentValues.map { (memberId, amount) ->
+            MemberAmount(
+                memberId = memberId,
+                amountCents = amount
+            )
+        }
+
+        val shares = shareValues.map { (memberId, amount) ->
+            MemberAmount(
+                memberId = memberId,
+                amountCents = amount
+            )
+        }
+
+        _state.update {
+            it.copy(
+                isSaving = true,
+                allocationError = null
+            )
+        }
+
         viewModelScope.launch {
-            groupsRepo.addReceipt(s.selectedGroupId!!, s.title, cents!!, s.paidByMemberId!!)
-            _state.update { it.copy(isSaving = false, saved = true) }
+            try {
+                groupsRepo.addReceipt(
+                    groupId = validGroup.id,
+                    title = s.title.trim(),
+                    totalCents = total,
+                    payments = payments,
+                    shares = shares,
+                    splitMode = s.splitMode
+                )
+
+                _state.update {
+                    it.copy(
+                        isSaving = false,
+                        saved = true
+                    )
+                }
+
+            } catch (e: CancellationException) {
+                throw e
+
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        isSaving = false,
+                        allocationError = e.message
+                            ?: "Failed to save receipt"
+                    )
+                }
+            }
         }
     }
 }

@@ -51,6 +51,10 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pouch.domain.formatMoney
 import com.pouch.ui.common.BackTopBar
+import com.pouch.ui.common.ReceiptSplitEditor
+import com.pouch.ui.common.parseCents
+import com.pouch.domain.SplitCalculator
+import com.pouch.domain.SplitMode
 import com.pouch.ui.common.EmptyView
 import com.pouch.ui.common.LoadingView
 import com.pouch.ui.common.ValidatedTextField
@@ -216,31 +220,56 @@ private fun EditReceipt(state: ScanUiState, viewModel: ScanViewModel, modifier: 
         )
 
         state.selectedGroup?.let { group ->
-            Spacer(Modifier.height(8.dp))
-            Text("Paid by", style = MaterialTheme.typography.labelLarge)
-            // Tap to choose instead of typing (Stage 2 usability finding).
-            ChipRow {
-                group.members.forEach { member ->
-                    FilterChip(
-                        selected = member.id == state.paidByMemberId,
-                        onClick = { viewModel.onPaidByChange(member.id) },
-                        label = { Text(member.name) },
-                    )
-                }
-            }
-            ErrorText(state.paidByError)
-
             Spacer(Modifier.height(16.dp))
-            Text("Split equally between ${group.members.size} people", style = MaterialTheme.typography.labelLarge)
-            state.sharePreview?.let { shares ->
-                group.members.zip(shares).forEach { (member, share) ->
-                    Text(
-                        "${member.name}: ${share.formatMoney()}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+
+            val total = parseCents(state.amount) ?: 0L
+
+            val paymentValues: Map<String, Long> =
+                if (state.payments.isEmpty()) {
+                    val payerId = state.paidByMemberId
+                        ?: group.members.firstOrNull()?.id
+
+                    if (payerId != null)
+                        mapOf(payerId to total)
+                    else
+                        emptyMap()
+                } else {
+                    state.payments
                 }
-            }
+
+            val equalAmounts =
+                if (group.members.isNotEmpty())
+                    SplitCalculator.equalShares(
+                        total,
+                        group.members.size
+                    )
+                else
+                    emptyList()
+
+            val equalShareValues =
+                group.members.mapIndexed { index, member ->
+                    member.id to equalAmounts[index]
+                }.toMap()
+
+            val shareValues: Map<String, Long> =
+                if (state.splitMode == SplitMode.EQUAL) {
+                    equalShareValues
+                } else {
+                    state.shares.ifEmpty { equalShareValues }
+                }
+
+            ReceiptSplitEditor(
+                members = group.members,
+                totalCents = total,
+                payments = paymentValues,
+                shares = shareValues,
+                splitMode = state.splitMode,
+                onSplitModeChange = viewModel::onSplitModeChange,
+                onPaymentsChange = viewModel::onPaymentsChange,
+                onSharesChange = viewModel::onSharesChange
+            )
+
+            ErrorText(state.allocationError)
         }
 
         Spacer(Modifier.height(32.dp))
