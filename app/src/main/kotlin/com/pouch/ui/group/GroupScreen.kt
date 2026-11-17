@@ -397,34 +397,6 @@ private fun EditReceiptDialog(
                     error = null
                 )
 
-                Row(
-                    horizontalArrangement =
-                        Arrangement.spacedBy(8.dp)
-                ) {
-                    FilterChip(
-                        selected = splitMode == SplitMode.EQUAL,
-                        onClick = {
-                            splitMode = SplitMode.EQUAL
-                            shares = equalShareValues
-                            error = null
-                        },
-                        label = { Text("Equal split") }
-                    )
-
-                    FilterChip(
-                        selected = splitMode == SplitMode.CUSTOM,
-                        onClick = {
-                            if (splitMode != SplitMode.CUSTOM) {
-                                shares = equalShareValues
-                            }
-                            splitMode = SplitMode.CUSTOM
-                            error = null
-                        },
-                        label = { Text("Custom split") }
-                    )
-                }
-
-
                 ReceiptSplitEditor(
                     members = members,
                     totalCents = total,
