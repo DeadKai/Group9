@@ -3,6 +3,7 @@ package com.pouch.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pouch.data.GroupRepository
+import com.pouch.ui.common.SuccessController
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,7 +24,10 @@ data class CreateGroupUiState(
     val createdGroupId: String? = null,
 )
 
-class CreateGroupViewModel(private val repository: GroupRepository) : ViewModel() {
+class CreateGroupViewModel(
+    private val repository: GroupRepository,
+    private val success: SuccessController,
+) : ViewModel() {
 
     private val _state = MutableStateFlow(CreateGroupUiState())
     val state: StateFlow<CreateGroupUiState> = _state.asStateFlow()
@@ -63,6 +67,7 @@ class CreateGroupViewModel(private val repository: GroupRepository) : ViewModel(
         _state.update { it.copy(isSaving = true) }
         viewModelScope.launch {
             val id = repository.createGroup(s.name, s.emoji, s.members)
+            success.show("Group created", "\"${s.name.trim()}\" is ready. Add your first receipt!")
             _state.update { it.copy(isSaving = false, createdGroupId = id) }
         }
     }

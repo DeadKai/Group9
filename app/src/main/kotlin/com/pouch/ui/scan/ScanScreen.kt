@@ -70,7 +70,7 @@ fun ScanScreen(
     onBack: () -> Unit,
     onSaved: () -> Unit,
     viewModel: ScanViewModel = pouchViewModel {
-        ScanViewModel(presetGroupId, it.groupRepository, it.receiptScanner)
+        ScanViewModel(presetGroupId, it.groupRepository, it.receiptScanner, it.success)
     },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()

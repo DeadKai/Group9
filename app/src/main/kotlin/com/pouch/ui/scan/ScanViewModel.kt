@@ -8,7 +8,9 @@ import com.pouch.domain.Group
 import com.pouch.domain.MemberAmount
 import com.pouch.domain.SplitCalculator
 import com.pouch.domain.SplitMode
+import com.pouch.domain.formatMoney
 import com.pouch.ocr.ReceiptScanner
+import com.pouch.ui.common.SuccessController
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -67,6 +69,7 @@ class ScanViewModel(
     private val presetGroupId: String?,
     private val groupsRepo: GroupRepository,
     private val scanner: ReceiptScanner,
+    private val success: SuccessController,
     private var scanJob: Job? = null,
 ) : ViewModel() {
 
@@ -367,6 +370,10 @@ class ScanViewModel(
                     splitMode = s.splitMode
                 )
 
+                success.show(
+                    "Receipt added",
+                    "${total.formatMoney()} added to ${validGroup.name}"
+                )
                 _state.update {
                     it.copy(
                         isSaving = false,

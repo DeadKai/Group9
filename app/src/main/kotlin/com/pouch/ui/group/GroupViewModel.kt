@@ -10,6 +10,7 @@ import com.pouch.domain.Member
 import com.pouch.domain.Receipt
 import com.pouch.domain.Settlement
 import com.pouch.domain.SplitCalculator
+import com.pouch.ui.common.SuccessController
 import com.pouch.ui.common.UiState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -31,6 +32,7 @@ data class GroupDetails(
 class GroupViewModel(
     private val groupId: String,
     private val repository: GroupRepository,
+    private val success: SuccessController,
 ) : ViewModel() {
 
     val state: StateFlow<UiState<GroupDetails>> = repository.observeGroup(groupId)
@@ -45,7 +47,7 @@ class GroupViewModel(
         .catch { emit(UiState.Error("Couldn't load this group")) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UiState.Loading)
 
-    /** Short confirmation / error text for the snackbar (null = nothing to show). */
+    /** Error / warning text for the snackbar (null = nothing to show). Successes use [success]. */
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
     fun messageShown() { _message.value = null }
@@ -62,7 +64,7 @@ class GroupViewModel(
         }
         viewModelScope.launch {
             repository.addMember(groupId, trimmed)
-            _message.value = "$trimmed added"
+            success.show("Member added", "$trimmed joined the group")
         }
         return null
     }
@@ -99,7 +101,7 @@ class GroupViewModel(
             else -> {
                 viewModelScope.launch {
                     repository.removeMember(groupId, member.id)
-                    _message.value = "${member.name} removed"
+                    success.show("Member removed", "${member.name} left the group")
                 }
             }
         }
@@ -110,12 +112,14 @@ class GroupViewModel(
     fun deleteReceipt(receipt: Receipt) {
         viewModelScope.launch {
             repository.deleteReceipt(groupId, receipt.id)
-            _message.value = "Receipt deleted"
+            success.show("Receipt deleted", "\"${receipt.title}\" was removed")
         }
     }
     fun deleteGroup(onDeleted: () -> Unit) {
+        val name = (state.value as? UiState.Success)?.data?.group?.name
         viewModelScope.launch {
             repository.deleteGroup(groupId)
+            success.show("Group deleted", name?.let { "\"$it\" and its receipts are gone" })
             onDeleted() //navigate back only after the delete is saved
         }
     }
@@ -139,7 +143,7 @@ class GroupViewModel(
                     splitMode = splitMode
                 )
 
-                _message.value = "Expense updated"
+                success.show("Receipt updated", "\"${title.trim()}\" was saved")
 
             } catch (e: Exception) {
                 _message.value =

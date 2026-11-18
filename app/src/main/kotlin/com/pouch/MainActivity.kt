@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import com.pouch.ui.common.SuccessHost
 import com.pouch.ui.navigation.PouchNavHost
 import com.pouch.ui.theme.PouchTheme
 
@@ -13,7 +14,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             PouchTheme {
-                PouchNavHost()
+                // Success overlay sits above every screen (and above navigation).
+                SuccessHost((application as PouchApp).container.success) {
+                    PouchNavHost()
+                }
             }
         }
     }
