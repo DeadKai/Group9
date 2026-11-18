@@ -12,6 +12,7 @@ import androidx.navigation.toRoute
 import com.pouch.ui.auth.AuthScreen
 import com.pouch.ui.auth.AuthViewModel
 import com.pouch.ui.group.GroupScreen
+import com.pouch.ui.history.BillHistoryScreen
 import com.pouch.ui.home.HomeScreen
 import com.pouch.ui.scan.ScanScreen
 import com.pouch.ui.settings.SettingsScreen
@@ -27,7 +28,11 @@ object SettingsRoute
 data class ScanRoute(val groupId: String? = null)
 
 @Serializable
-data class GroupRoute(val groupId: String)
+data class GroupRoute(val groupId: String, val receiptId: String? = null)
+
+/** Opens the combined receipt history for the groups shown on Home. */
+@Serializable
+object BillHistoryRoute
 
 @Composable
 fun PouchNavHost(navController: NavHostController = rememberNavController(),
@@ -48,16 +53,27 @@ fun PouchNavHost(navController: NavHostController = rememberNavController(),
                 onOpenGroup = { groupId -> navController.navigate(GroupRoute(groupId)) },
                 onScan = { navController.navigate(ScanRoute()) },
                 onSettings = { navController.navigate(SettingsRoute) },
+                onOpenBillHistory = { navController.navigate(BillHistoryRoute) },
                 //onSignOut = { authViewModel.signOut() },
             )
         }
 
-        composable<GroupRoute> { entry ->
-            val groupId = entry.toRoute<GroupRoute>().groupId
-            GroupScreen(
-                groupId = groupId,
+        composable<BillHistoryRoute> {
+            BillHistoryScreen(
                 onBack = { navController.popBackStack() },
-                onAddReceipt = { navController.navigate(ScanRoute(groupId)) },
+                onOpenReceipt = { groupId, receiptId ->
+                    navController.navigate(GroupRoute(groupId, receiptId))
+                },
+            )
+        }
+
+        composable<GroupRoute> { entry ->
+            val route = entry.toRoute<GroupRoute>()
+            GroupScreen(
+                groupId = route.groupId,
+                initialReceiptId = route.receiptId,
+                onBack = { navController.popBackStack() },
+                onAddReceipt = { navController.navigate(ScanRoute(route.groupId)) },
             )
         }
 
