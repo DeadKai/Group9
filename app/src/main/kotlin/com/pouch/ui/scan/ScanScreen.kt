@@ -56,6 +56,8 @@ import com.pouch.ui.common.parseCents
 import com.pouch.domain.SplitCalculator
 import com.pouch.domain.SplitMode
 import com.pouch.ui.common.EmptyView
+import com.pouch.ui.common.LoadingButton
+import com.pouch.ui.common.LoadingScreen
 import com.pouch.ui.common.LoadingView
 import com.pouch.ui.common.ValidatedTextField
 import com.pouch.ui.common.pouchViewModel
@@ -125,15 +127,12 @@ fun ScanScreen(
                 onManual = viewModel::enterManually,
             )
 
-            state.step == ScanStep.READING -> Column(
-                modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                CircularProgressIndicator()
-                Spacer(Modifier.height(16.dp))
-                Text("Reading receipt…", style = MaterialTheme.typography.bodyMedium)
-            }
+            state.step == ScanStep.READING -> LoadingScreen(
+                title = "Reading receipt…",
+                steps = listOf("Looking for text", "Finding the total", "Almost done"),
+                onCancel = viewModel::cancelScan,
+                modifier = modifier,
+            )
 
             else -> EditReceipt(state, viewModel, modifier)
         }
@@ -273,14 +272,12 @@ private fun EditReceipt(state: ScanUiState, viewModel: ScanViewModel, modifier: 
         }
 
         Spacer(Modifier.height(32.dp))
-        Button(
+        LoadingButton(
+            text = "Save receipt",
+            loadingText = "Saving…",
+            isLoading = state.isSaving,
             onClick = viewModel::save,
-            enabled = !state.isSaving,
-            modifier = Modifier.fillMaxWidth().height(48.dp),
-        ) {
-            if (state.isSaving) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-            else Text("Save receipt")
-        }
+        )
         TextButton(onClick = viewModel::backToSource, modifier = Modifier.align(Alignment.CenterHorizontally)) {
             Text("Scan another photo")
         }
