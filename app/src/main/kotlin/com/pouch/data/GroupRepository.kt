@@ -127,6 +127,8 @@ class GroupRepository(
     suspend fun deleteReceipt(groupId: String, receiptId: String) = updateGroup(groupId) { group ->
         group.copy(receipts = group.receipts.filterNot { it.id == receiptId })
     }
+    suspend fun deleteGroup(groupId: String) =
+        update { list -> list.filterNot { it.id == groupId } }
     suspend fun updateReceipt(groupId: String, receiptId: String, title: String,totalCents: Long, payments: List<MemberAmount>, shares: List<MemberAmount>, splitMode: SplitMode) = updateGroup(groupId) { group ->
 
         require(title.isNotBlank() && title.length <= 60)
