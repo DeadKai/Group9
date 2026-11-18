@@ -70,7 +70,7 @@ fun GroupScreen(
     groupId: String,
     onBack: () -> Unit,
     onAddReceipt: () -> Unit,
-    viewModel: GroupViewModel = pouchViewModel { GroupViewModel(groupId, it.groupRepository) },
+    viewModel: GroupViewModel = pouchViewModel { GroupViewModel(groupId, it.groupRepository, it.success) },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
