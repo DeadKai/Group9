@@ -1,7 +1,6 @@
 package com.pouch.ui.navigation
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -15,11 +14,14 @@ import com.pouch.ui.auth.AuthViewModel
 import com.pouch.ui.group.GroupScreen
 import com.pouch.ui.home.HomeScreen
 import com.pouch.ui.scan.ScanScreen
+import com.pouch.ui.settings.SettingsScreen
 import kotlinx.serialization.Serializable
 
 @Serializable
 object HomeRoute
 
+@Serializable
+object SettingsRoute
 /** [groupId] = null when opened from Home (the user picks the group on the Scan screen). */
 @Serializable
 data class ScanRoute(val groupId: String? = null)
@@ -45,7 +47,8 @@ fun PouchNavHost(navController: NavHostController = rememberNavController(),
             HomeScreen(
                 onOpenGroup = { groupId -> navController.navigate(GroupRoute(groupId)) },
                 onScan = { navController.navigate(ScanRoute()) },
-                onSignOut = { authViewModel.signOut() },
+                onSettings = { navController.navigate(SettingsRoute) },
+                //onSignOut = { authViewModel.signOut() },
             )
         }
 
@@ -64,6 +67,17 @@ fun PouchNavHost(navController: NavHostController = rememberNavController(),
                 // Back and "saved" both return to where Scan was opened from (Home or Group).
                 onBack = { navController.popBackStack() },
                 onSaved = { navController.popBackStack() },
+            )
+        }
+
+        composable<SettingsRoute> {
+            SettingsScreen(
+                onBack = { navController.popBackStack() },
+                onSignOut = {
+                    // Go back to Home first, otherwise the next login would open Settings again.
+                    navController.popBackStack(HomeRoute, inclusive = false)
+                    authViewModel.signOut()
+                },
             )
         }
     }
