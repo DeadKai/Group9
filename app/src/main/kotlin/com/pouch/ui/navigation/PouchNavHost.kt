@@ -29,10 +29,9 @@ object SettingsRoute
 data class ScanRoute(val groupId: String? = null)
 
 @Serializable
-data class GroupRoute(val groupId: String)
+data class GroupRoute(val groupId: String, val receiptId: String? = null)
 @Serializable
 object ProfileRoute
-data class GroupRoute(val groupId: String, val receiptId: String? = null)
 
 /** Opens the combined receipt history for the groups shown on Home. */
 @Serializable
@@ -57,8 +56,8 @@ fun PouchNavHost(navController: NavHostController = rememberNavController(),
                 onOpenGroup = { groupId -> navController.navigate(GroupRoute(groupId)) },
                 onScan = { navController.navigate(ScanRoute()) },
                 onSignOut = { authViewModel.signOut() },
-                onProfile = { navController.navigate(ProfileRoute)}
-                onSettings = { navController.navigate(SettingsRoute) },
+                onProfile = { navController.navigate(ProfileRoute)},
+                onSettings = { navController.navigate(SettingsRoute)},
                 onOpenBillHistory = { navController.navigate(BillHistoryRoute) },
                 //onSignOut = { authViewModel.signOut() },
             )
@@ -91,20 +90,32 @@ fun PouchNavHost(navController: NavHostController = rememberNavController(),
                 onSaved = { navController.popBackStack() },
             )
         }
+
         composable<ProfileRoute> {
             ProfileScreen(
-                onBack = { navController.popBackStack() },
-                onSignOut = { authViewModel.signOut() }
+                onBack = {
+                    navController.popBackStack()
+                },
+                onSignOut = {
+                    navController.popBackStack(HomeRoute, inclusive = false)
+                    authViewModel.signOut()
+                }
+            )
+        }
 
         composable<SettingsRoute> {
             SettingsScreen(
-                onBack = { navController.popBackStack() },
+                onBack = {
+                    navController.popBackStack()
+                },
                 onSignOut = {
-                    // Go back to Home first, otherwise the next login would open Settings again.
+                    // Return to Home before signing out
                     navController.popBackStack(HomeRoute, inclusive = false)
                     authViewModel.signOut()
-                },
+                }
             )
         }
     }
 }
+
+
