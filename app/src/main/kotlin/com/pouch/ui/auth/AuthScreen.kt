@@ -125,19 +125,6 @@ fun AuthScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        OutlinedButton(
-            onClick = {
-                scope.launch {
-                    requestGoogleIdToken(context, webClientId)
-                        .onSuccess { token -> viewModel.signInWithGoogle(token) }
-                        .onFailure { err -> viewModel.setError(err.localizedMessage) }
-                }
-            },
-            enabled = !viewModel.isLoading,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Continue with Google")
-        }
 
         Spacer(modifier = Modifier.height(8.dp))
 

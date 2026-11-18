@@ -56,20 +56,6 @@ class AuthViewModel(
         }
     }
 
-    fun signInWithGoogle(idToken: String) {
-        viewModelScope.launch {
-            isLoading = true
-            errorMessage = null
-            try {
-                authRepository.signInWithGoogle(idToken)
-            } catch (e: Exception) {
-                errorMessage = e.localizedMessage ?: "Google sign-in failed"
-            } finally {
-                isLoading = false
-            }
-        }
-    }
-
     fun setError(message: String?) {
         errorMessage = message
     }

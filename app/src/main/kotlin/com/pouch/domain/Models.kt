@@ -59,20 +59,12 @@ data class Receipt(
     val totalCents: Long = 0L,
     val paidByMemberId: String = "",
     val createdAt: Long = 0L,
-
-    // Payments and shares
     val payments: List<MemberAmount> = emptyList(),
     val shares: List<MemberAmount> = emptyList(),
-
-    // Split configuration
     val splitMode: SplitMode = SplitMode.EQUAL,
     val splitMethod: String = "equal",
-
-    // Dates
     val modifiedAt: Long = createdAt,
     val receiptDate: Long? = null,
-
-    // Receipt details
     val items: List<ReceiptItem> = emptyList(),
     val payers: List<ReceiptPayer> = emptyList(),
     val splits: List<ReceiptSplit> = emptyList()
