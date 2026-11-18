@@ -12,6 +12,7 @@ import androidx.navigation.toRoute
 import com.pouch.ui.auth.AuthScreen
 import com.pouch.ui.auth.AuthViewModel
 import com.pouch.ui.group.GroupScreen
+import com.pouch.ui.profile.ProfileScreen
 import com.pouch.ui.history.BillHistoryScreen
 import com.pouch.ui.home.HomeScreen
 import com.pouch.ui.scan.ScanScreen
@@ -28,6 +29,9 @@ object SettingsRoute
 data class ScanRoute(val groupId: String? = null)
 
 @Serializable
+data class GroupRoute(val groupId: String)
+@Serializable
+object ProfileRoute
 data class GroupRoute(val groupId: String, val receiptId: String? = null)
 
 /** Opens the combined receipt history for the groups shown on Home. */
@@ -52,6 +56,8 @@ fun PouchNavHost(navController: NavHostController = rememberNavController(),
             HomeScreen(
                 onOpenGroup = { groupId -> navController.navigate(GroupRoute(groupId)) },
                 onScan = { navController.navigate(ScanRoute()) },
+                onSignOut = { authViewModel.signOut() },
+                onProfile = { navController.navigate(ProfileRoute)}
                 onSettings = { navController.navigate(SettingsRoute) },
                 onOpenBillHistory = { navController.navigate(BillHistoryRoute) },
                 //onSignOut = { authViewModel.signOut() },
@@ -85,6 +91,10 @@ fun PouchNavHost(navController: NavHostController = rememberNavController(),
                 onSaved = { navController.popBackStack() },
             )
         }
+        composable<ProfileRoute> {
+            ProfileScreen(
+                onBack = { navController.popBackStack() },
+                onSignOut = { authViewModel.signOut() }
 
         composable<SettingsRoute> {
             SettingsScreen(

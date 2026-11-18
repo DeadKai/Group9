@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -49,6 +50,8 @@ import com.pouch.ui.theme.PouchColors
 fun HomeScreen(
     onOpenGroup: (String) -> Unit,
     onScan: () -> Unit,
+    onSignOut: () -> Unit = {},
+    onProfile: () -> Unit,
     onSettings: () -> Unit,
     onOpenBillHistory: () -> Unit,
     //onSignOut: () -> Unit = {},
@@ -70,6 +73,12 @@ fun HomeScreen(
                     }
                     IconButton(onClick = onSettings) {
                         Icon(Icons.Filled.Settings, contentDescription = "Settings")
+                    }
+                    IconButton(onClick = onProfile) {
+                        Icon(
+                            Icons.Filled.AccountCircle,
+                            contentDescription = "My profile"
+                        )
                     }
                 },
             )
