@@ -16,7 +16,6 @@ import com.pouch.domain.User
 @Composable
 fun ProfileScreen(
     onBack: () -> Unit,
-    onSignOut: () -> Unit,
     viewModel: ProfileViewModel = viewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -173,10 +172,6 @@ fun ProfileScreen(
                             it,
                             color = MaterialTheme.colorScheme.error
                         )
-                    }
-                    HorizontalDivider()
-                    OutlinedButton(onClick = onSignOut) {
-                        Text("Log out")
                     }
                 }
             }
