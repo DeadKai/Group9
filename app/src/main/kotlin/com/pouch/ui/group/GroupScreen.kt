@@ -65,12 +65,14 @@ import java.util.Date
 
 private val TABS = listOf("Receipts", "Balances", "Members")
 
+/** Displays a group's receipts, balances, and members, with an optional receipt to edit. */
 @Composable
 fun GroupScreen(
     groupId: String,
     onBack: () -> Unit,
     onAddReceipt: () -> Unit,
-    viewModel: GroupViewModel = pouchViewModel { GroupViewModel(groupId, it.groupRepository) },
+    initialReceiptId: String? = null,
+    viewModel: GroupViewModel = pouchViewModel { GroupViewModel(groupId, it.groupRepository, it.success) },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
@@ -78,7 +80,7 @@ fun GroupScreen(
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var showAddMember by remember { mutableStateOf(false) }
     var receiptToDelete by remember { mutableStateOf<Receipt?>(null) }
-    var receiptToEdit by remember { mutableStateOf<Receipt?>(null) }
+    var receiptToEditId by rememberSaveable { mutableStateOf(initialReceiptId) }
     var confirmDeleteGroup by remember { mutableStateOf(false) }
 
     LaunchedEffect(message) { message?.let { snackbar.showSnackbar(it); viewModel.messageShown() } }
@@ -131,7 +133,7 @@ fun GroupScreen(
                             details,
                             onAddReceipt,
                             onDelete = { receiptToDelete = it },
-                            onEdit = { receiptToEdit = it })
+                            onEdit = { receiptToEditId = it.id })
 
                         1 -> BalancesTab(details)
                         else -> MembersTab(
@@ -189,15 +191,14 @@ fun GroupScreen(
         )
     }
 
-    receiptToEdit?.let { receipt ->
-        val details = (state as? UiState.Success)?.data
-
-        if (details != null) {
+    val details = (state as? UiState.Success)?.data
+    if (details != null) {
+        details.group.receipts.firstOrNull { it.id == receiptToEditId }?.let { receipt ->
             EditReceiptDialog(
                 receipt = receipt,
                 members = details.group.members,
                 onDismiss = {
-                    receiptToEdit = null
+                    receiptToEditId = null
                 },
                 onSave = { title, cents, payments, shares, mode ->
                     viewModel.updateReceipt(
@@ -209,7 +210,7 @@ fun GroupScreen(
                         splitMode = mode
                     )
 
-                    receiptToEdit = null
+                    receiptToEditId = null
                 }
             )
         }

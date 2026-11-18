@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Button
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -32,7 +32,9 @@ import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import androidx.credentials.exceptions.GetCredentialCancellationException
 import com.pouch.R
+import com.pouch.ui.common.LoadingButton
 import kotlinx.coroutines.launch
 
 @Composable
@@ -69,6 +71,7 @@ fun AuthScreen(
                 onValueChange = { fullName = it },
                 label = { Text("Full Name") },
                 singleLine = true,
+                enabled = !viewModel.isLoading,
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(modifier = Modifier.height(12.dp))
@@ -79,6 +82,7 @@ fun AuthScreen(
             onValueChange = { email = it },
             label = { Text("Email") },
             singleLine = true,
+            enabled = !viewModel.isLoading,
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -89,6 +93,7 @@ fun AuthScreen(
             onValueChange = { password = it },
             label = { Text("Password (6+ chars)") },
             singleLine = true,
+            enabled = !viewModel.isLoading,
             visualTransformation = PasswordVisualTransformation(),
             modifier = Modifier.fillMaxWidth()
         )
@@ -104,7 +109,14 @@ fun AuthScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        Button(
+        // Shows a spinner + "Signing in…" while Firebase works. The Google button
+        // stays normal, so the user can see which action is running.
+        LoadingButton(
+            text = if (isSignUp) "Sign Up" else "Sign In",
+            loadingText = if (isSignUp) "Creating account…" else "Signing in…",
+            isLoading = viewModel.loadingAction == AuthAction.EMAIL,
+            enabled = !viewModel.isLoading && email.isNotBlank() && password.length >= 6 &&
+                    (!isSignUp || fullName.isNotBlank()),
             onClick = {
                 if (isSignUp) {
                     viewModel.signUp(fullName, email, password)
@@ -112,31 +124,37 @@ fun AuthScreen(
                     viewModel.signIn(email, password)
                 }
             },
-            enabled = !viewModel.isLoading && email.isNotBlank() && password.length >= 6 &&
-                    (!isSignUp || fullName.isNotBlank()),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            if (viewModel.isLoading) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-            } else {
-                Text(if (isSignUp) "Sign Up" else "Sign In")
-            }
-        }
+        )
 
         Spacer(modifier = Modifier.height(12.dp))
 
         OutlinedButton(
             onClick = {
+                viewModel.startGoogleSignIn()
                 scope.launch {
                     requestGoogleIdToken(context, webClientId)
                         .onSuccess { token -> viewModel.signInWithGoogle(token) }
-                        .onFailure { err -> viewModel.setError(err.localizedMessage) }
+                        .onFailure { err ->
+                            // Closing the account picker is not an error, so show no message then.
+                            viewModel.googleSignInFailed(
+                                if (err is GetCredentialCancellationException) null
+                                else err.localizedMessage ?: "Google sign-in failed"
+                            )
+                        }
                 }
             },
             enabled = !viewModel.isLoading,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
         ) {
-            Text("Continue with Google")
+            if (viewModel.loadingAction == AuthAction.GOOGLE) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                Spacer(modifier = Modifier.width(12.dp))
+                Text("Connecting to Google…")
+            } else {
+                Text("Continue with Google")
+            }
         }
 
         Spacer(modifier = Modifier.height(8.dp))

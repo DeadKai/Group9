@@ -8,7 +8,9 @@ import com.pouch.domain.Group
 import com.pouch.domain.MemberAmount
 import com.pouch.domain.SplitCalculator
 import com.pouch.domain.SplitMode
+import com.pouch.domain.formatMoney
 import com.pouch.ocr.ReceiptScanner
+import com.pouch.ui.common.SuccessController
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,6 +18,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.Job
 
 /** Which part of the Scan screen is visible. */
 enum class ScanStep { CHOOSE_SOURCE, READING, EDIT }
@@ -66,6 +69,8 @@ class ScanViewModel(
     private val presetGroupId: String?,
     private val groupsRepo: GroupRepository,
     private val scanner: ReceiptScanner,
+    private val success: SuccessController,
+    private var scanJob: Job? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(
@@ -99,7 +104,8 @@ class ScanViewModel(
     /** Called with the photo from the camera or gallery. */
     fun onImagePicked(uri: Uri) {
         _state.update { it.copy(step = ScanStep.READING, scanMessage = null) }
-        viewModelScope.launch {
+        scanJob?.cancel()
+        scanJob = viewModelScope.launch {
             try {
                 val result = scanner.scan(uri)
                 _state.update {
@@ -124,6 +130,11 @@ class ScanViewModel(
                 }
             }
         }
+    }
+
+    fun cancelScan() {
+        scanJob?.cancel()
+        _state.update { it.copy(step = ScanStep.CHOOSE_SOURCE) }
     }
 
     fun enterManually() = _state.update { it.copy(step = ScanStep.EDIT, scanMessage = null) }
@@ -359,6 +370,10 @@ class ScanViewModel(
                     splitMode = s.splitMode
                 )
 
+                success.show(
+                    "Receipt added",
+                    "${total.formatMoney()} added to ${validGroup.name}"
+                )
                 _state.update {
                     it.copy(
                         isSaving = false,
