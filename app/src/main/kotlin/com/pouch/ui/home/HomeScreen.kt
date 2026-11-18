@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -49,6 +50,7 @@ fun HomeScreen(
     onOpenGroup: (String) -> Unit,
     onScan: () -> Unit,
     onSignOut: () -> Unit = {},
+    onProfile: () -> Unit,
     viewModel: HomeViewModel = pouchViewModel { HomeViewModel(it.groupRepository) },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -64,6 +66,12 @@ fun HomeScreen(
                     }
                     TextButton(onClick = onSignOut) {
                         Text("Log out")
+                    }
+                    IconButton(onClick = onProfile) {
+                        Icon(
+                            Icons.Filled.AccountCircle,
+                            contentDescription = "My profile"
+                        )
                     }
                 },
             )

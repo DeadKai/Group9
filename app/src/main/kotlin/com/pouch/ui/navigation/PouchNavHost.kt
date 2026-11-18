@@ -13,6 +13,7 @@ import androidx.navigation.toRoute
 import com.pouch.ui.auth.AuthScreen
 import com.pouch.ui.auth.AuthViewModel
 import com.pouch.ui.group.GroupScreen
+import com.pouch.ui.profile.ProfileScreen
 import com.pouch.ui.home.HomeScreen
 import com.pouch.ui.scan.ScanScreen
 import kotlinx.serialization.Serializable
@@ -26,7 +27,8 @@ data class ScanRoute(val groupId: String? = null)
 
 @Serializable
 data class GroupRoute(val groupId: String)
-
+@Serializable
+object ProfileRoute
 @Composable
 fun PouchNavHost(navController: NavHostController = rememberNavController(),
                  authViewModel: AuthViewModel = viewModel(factory = AuthViewModel.Factory)) {
@@ -46,6 +48,7 @@ fun PouchNavHost(navController: NavHostController = rememberNavController(),
                 onOpenGroup = { groupId -> navController.navigate(GroupRoute(groupId)) },
                 onScan = { navController.navigate(ScanRoute()) },
                 onSignOut = { authViewModel.signOut() },
+                onProfile = { navController.navigate(ProfileRoute)}
             )
         }
 
@@ -64,6 +67,12 @@ fun PouchNavHost(navController: NavHostController = rememberNavController(),
                 // Back and "saved" both return to where Scan was opened from (Home or Group).
                 onBack = { navController.popBackStack() },
                 onSaved = { navController.popBackStack() },
+            )
+        }
+        composable<ProfileRoute> {
+            ProfileScreen(
+                onBack = { navController.popBackStack() },
+                onSignOut = { authViewModel.signOut() }
             )
         }
     }
