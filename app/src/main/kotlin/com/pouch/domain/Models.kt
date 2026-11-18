@@ -14,6 +14,15 @@ data class User(
     val photoUrl: String = ""
 )
 
+/** Stored friendship invitation between two Firebase accounts. */
+data class FriendRequest(
+    val id: String = "",
+    val senderId: String = "",
+    val receiverId: String = "",
+    val createdAt: Long = 0L,
+    val status: String = "pending",
+)
+
 @Serializable
 data class Member(
     val id: String = "",
@@ -43,8 +52,8 @@ data class ReceiptSplit(
 )
 @Serializable
 data class MemberAmount(
-    val memberId: String,
-    val amountCents: Long
+    val memberId: String = "",
+    val amountCents: Long = 0L
 )
 
 @Serializable
@@ -90,6 +99,7 @@ data class Group(
     val modifiedAt: Long = createdAt,
     val members: List<Member> = emptyList(),
     val receipts: List<Receipt> = emptyList(),
+    val memberUserIds: List<String> = emptyList(),
 ) {
     @get:Exclude
     val totalSpentCents: Long get() = receipts.sumOf { it.totalCents }

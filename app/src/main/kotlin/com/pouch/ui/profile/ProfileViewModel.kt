@@ -10,6 +10,7 @@ import com.pouch.domain.User
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlin.coroutines.cancellation.CancellationException
 
 data class ProfileUiState(
     val loading: Boolean = true,
@@ -18,6 +19,9 @@ data class ProfileUiState(
     val incoming: List<FriendRequest> = emptyList(),
     val outgoing: List<FriendRequest> = emptyList(),
     val results: List<User> = emptyList(),
+    val searching: Boolean = false,
+    val searchMessage: String? = null,
+    val searchFailed: Boolean = false,
     val requestUsers: Map<String, User> = emptyMap(),
     val busy: Boolean = false,
     val message: String? = null
@@ -104,15 +108,27 @@ class ProfileViewModel(
         }
     }
 
+    /** Updates the search section while a lookup runs and when it finishes. */
     fun search(query: String) {
+        if (state.value.searching) return
+        change { it.copy(results = emptyList(), searching = true, searchMessage = null, searchFailed = false) }
         viewModelScope.launch {
             try {
                 val results = users.searchByUsername(query)
-                change { it.copy(results = results, message = null) }
+                change {
+                    it.copy(
+                        results = results,
+                        searchMessage = if (results.isEmpty()) "No users found. Check their profile username." else null,
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 change {
-                    it.copy(message = e.localizedMessage ?: "Search failed")
+                    it.copy(searchMessage = e.localizedMessage ?: "Search failed. Try again.", searchFailed = true)
                 }
+            } finally {
+                change { it.copy(searching = false) }
             }
         }
     }

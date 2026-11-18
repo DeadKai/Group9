@@ -92,8 +92,9 @@ class UserRepository(
         }.await()
     }
 
+    /** Searches by username prefix and accepts the optional @ shown in profiles. */
     suspend fun searchByUsername(value: String): List<User> {
-        val username = value.trim().lowercase()
+        val username = value.trim().removePrefix("@").lowercase()
         if (username.isBlank()) return emptyList()
 
         return users

@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.coroutines.cancellation.CancellationException
 
 val GROUP_EMOJIS = listOf("🏠", "✈️", "🍕", "🛒", "🎉", "🚗", "🏕️", "💼")
 
@@ -19,6 +20,7 @@ data class CreateGroupUiState(
     val members: List<String> = emptyList(),
     val nameError: String? = null,
     val memberError: String? = null,
+    val saveError: String? = null,
     val isSaving: Boolean = false,
     /** Set when saving finished -> the sheet closes and opens the new group. */
     val createdGroupId: String? = null,
@@ -53,22 +55,31 @@ class CreateGroupViewModel(
 
     fun save() {
         val s = _state.value
+        if (s.isSaving) return
         val nameError = when {
             s.name.isBlank() -> "Give your group a name"
             s.name.trim().length > MAX_NAME -> "Keep it under $MAX_NAME characters"
             else -> null
         }
-        val memberError = if (s.members.isEmpty()) "Add at least one person to split with" else null
+        val memberError = if (s.members.isEmpty() && !repository.hasAccount()) {
+            "Add at least one person to split with"
+        } else null
         if (nameError != null || memberError != null) {
             _state.update { it.copy(nameError = nameError, memberError = memberError) }
             return
         }
 
-        _state.update { it.copy(isSaving = true) }
+        _state.update { it.copy(isSaving = true, saveError = null) }
         viewModelScope.launch {
-            val id = repository.createGroup(s.name, s.emoji, s.members)
-            success.show("Group created", "\"${s.name.trim()}\" is ready. Add your first receipt!")
-            _state.update { it.copy(isSaving = false, createdGroupId = id) }
+            try {
+                val id = repository.createGroup(s.name, s.emoji, s.members)
+                success.show("Group created", "\"${s.name.trim()}\" is ready.")
+                _state.update { it.copy(isSaving = false, createdGroupId = id) }
+            } catch (failure: CancellationException) {
+                throw failure
+            } catch (failure: Exception) {
+                _state.update { it.copy(isSaving = false, saveError = failure.message ?: "Could not create group") }
+            }
         }
     }
 

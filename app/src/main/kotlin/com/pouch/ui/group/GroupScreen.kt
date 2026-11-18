@@ -19,6 +19,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -45,6 +46,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material.icons.filled.Edit
 import com.pouch.domain.Member
 import com.pouch.domain.Receipt
+import com.pouch.domain.User
 import com.pouch.domain.formatMoney
 import com.pouch.domain.MemberAmount
 import com.pouch.domain.SplitMode
@@ -76,21 +78,25 @@ fun GroupScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
+    val friends by viewModel.friends.collectAsStateWithLifecycle()
+    val sharing by viewModel.sharing.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var showAddMember by remember { mutableStateOf(false) }
+    var showFriends by remember { mutableStateOf(false) }
     var receiptToDelete by remember { mutableStateOf<Receipt?>(null) }
     var receiptToEditId by rememberSaveable { mutableStateOf(initialReceiptId) }
     var confirmDeleteGroup by remember { mutableStateOf(false) }
 
     LaunchedEffect(message) { message?.let { snackbar.showSnackbar(it); viewModel.messageShown() } }
 
-    val title = (state as? UiState.Success)?.data?.group?.let { "${it.icon} ${it.name}" } ?: "Group"
+    val details = (state as? UiState.Success)?.data
+    val title = details?.group?.let { "${it.icon} ${it.name}" } ?: "Group"
 
     Scaffold(
         topBar = {
             BackTopBar(title, onBack) {
-                if (state is UiState.Success) {
+                if (details?.canManage == true) {
                     IconButton(onClick = { confirmDeleteGroup = true }) {
                         Icon(Icons.Default.Delete, contentDescription = "Delete group")
                     }
@@ -107,7 +113,7 @@ fun GroupScreen(
                         text = { Text("Add receipt") },
                     )
 
-                    2 -> ExtendedFloatingActionButton(
+                    2 -> if (details?.canManage == true) ExtendedFloatingActionButton(
                         onClick = { showAddMember = true },
                         icon = { Icon(Icons.Default.Add, null) },
                         text = { Text("Add member") },
@@ -138,12 +144,30 @@ fun GroupScreen(
                         1 -> BalancesTab(details)
                         else -> MembersTab(
                             details.group.members,
-                            onRemove = viewModel::removeMember
+                            ownerId = details.group.members.firstOrNull()?.id,
+                            onRemove = if (details.canManage) viewModel::removeMember else null,
+                            onShare = if (details.canManage && details.group.createdByUserId.isNotEmpty()) {
+                                {
+                                    showFriends = true
+                                    viewModel.loadFriends()
+                                }
+                            } else null,
                         )
                     }
                 }
             }
         }
+    }
+
+    if (showFriends && details?.canManage == true) {
+        ShareGroupDialog(
+            state = friends,
+            memberUserIds = details.group.memberUserIds,
+            sharing = sharing,
+            onDismiss = { showFriends = false },
+            onRetry = viewModel::loadFriends,
+            onAdd = { friend -> viewModel.addFriend(friend) { showFriends = false } },
+        )
     }
 
     if (showAddMember) {
@@ -191,7 +215,6 @@ fun GroupScreen(
         )
     }
 
-    val details = (state as? UiState.Success)?.data
     if (details != null) {
         details.group.receipts.firstOrNull { it.id == receiptToEditId }?.let { receipt ->
             EditReceiptDialog(
@@ -289,17 +312,83 @@ private fun BalancesTab(details: GroupDetails) {
 }
 
 @Composable
-private fun MembersTab(members: List<Member>, onRemove: (Member) -> Unit) {
+private fun MembersTab(
+    members: List<Member>,
+    ownerId: String?,
+    onRemove: ((Member) -> Unit)?,
+    onShare: (() -> Unit)?,
+) {
     LazyColumn(contentPadding = listPadding, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (onShare != null) {
+            item { TextButton(onClick = onShare) { Text("Share with a friend") } }
+        }
         items(members, key = { it.id }) { member ->
             ListCard {
                 Text(member.name, modifier = Modifier.weight(1f))
-                IconButton(onClick = { onRemove(member) }) {
-                    Icon(Icons.Default.Delete, contentDescription = "Remove ${member.name}")
+                if (onRemove != null && member.id != ownerId) {
+                    IconButton(onClick = { onRemove(member) }) {
+                        Icon(Icons.Default.Delete, contentDescription = "Remove ${member.name}")
+                    }
                 }
             }
         }
     }
+}
+
+/** Lets the group owner share the group with one existing friend. */
+@Composable
+private fun ShareGroupDialog(
+    state: UiState<List<User>>,
+    memberUserIds: List<String>,
+    sharing: Boolean,
+    onDismiss: () -> Unit,
+    onRetry: () -> Unit,
+    onAdd: (User) -> Unit,
+) {
+    var selectedUid by rememberSaveable { mutableStateOf<String?>(null) }
+    val available = (state as? UiState.Success)?.data.orEmpty()
+        .filter { it.uid.isNotBlank() && it.uid !in memberUserIds }
+    val selectedFriend = available.firstOrNull { it.uid == selectedUid }
+    AlertDialog(
+        onDismissRequest = { if (!sharing) onDismiss() },
+        title = { Text("Share with a friend") },
+        text = {
+            when (state) {
+                UiState.Loading -> CircularProgressIndicator()
+                UiState.Empty -> Text("Add a friend in Profile first.")
+                is UiState.Error -> Column {
+                    Text(state.message)
+                    TextButton(onClick = onRetry) { Text("Try again") }
+                }
+                is UiState.Success -> {
+                    if (available.isEmpty()) {
+                        Text("All your friends are already in this group.")
+                    } else {
+                        LazyColumn(Modifier.heightIn(max = 240.dp)) {
+                            item { Text("Your friend will be able to see and edit this group's receipts.") }
+                            items(available, key = { it.uid }) { friend ->
+                                FilterChip(
+                                    selected = friend.uid == selectedUid,
+                                    onClick = { selectedUid = friend.uid },
+                                    enabled = !sharing,
+                                    label = { Text(friend.fullName.ifBlank { friend.username.ifBlank { friend.email } }) },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { selectedFriend?.let(onAdd) },
+                enabled = selectedFriend != null && !sharing,
+            ) {
+                Text(if (sharing) "Sharing…" else "Share")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !sharing) { Text("Cancel") } },
+    )
 }
 
 @Composable

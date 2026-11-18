@@ -14,6 +14,7 @@ import com.pouch.ui.common.SuccessController
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
@@ -26,6 +27,7 @@ enum class ScanStep { CHOOSE_SOURCE, READING, EDIT }
 data class ScanUiState(
     val step: ScanStep = ScanStep.CHOOSE_SOURCE,
     val groupsLoaded: Boolean = false,
+    val groupsLoadError: String? = null,
     val groups: List<Group> = emptyList(),
     val groupLocked: Boolean = false,          // true when opened from a Group screen
     val selectedGroupId: String? = null,
@@ -83,7 +85,11 @@ class ScanViewModel(
 
     init {
         viewModelScope.launch {
-            groupsRepo.groups.collect { groups ->
+            groupsRepo.groups.catch { failure ->
+                _state.update {
+                    it.copy(groupsLoaded = true, groupsLoadError = failure.message ?: "Could not load groups")
+                }
+            }.collect { groups ->
                 _state.update { s ->
                     // Only one group? Pick it automatically.
                     val selected = s.selectedGroupId ?: groups.singleOrNull()?.id
@@ -92,9 +98,8 @@ class ScanViewModel(
                         groupsLoaded = true,
                         groups = groups,
                         selectedGroupId = selected,
-                        // Default payer = first member (the group creator, "you").
                         paidByMemberId = s.paidByMemberId?.takeIf { id -> group?.members?.any { it.id == id } == true }
-                            ?: group?.members?.firstOrNull()?.id,
+                            ?: group?.let(groupsRepo::currentMemberId),
                     )
                 }
             }
@@ -150,7 +155,10 @@ class ScanViewModel(
         s.copy(
             selectedGroupId = groupId,
             groupError = null,
-            paidByMemberId = group?.members?.firstOrNull()?.id
+            paidByMemberId = group?.let(groupsRepo::currentMemberId),
+            payments = emptyMap(),
+            shares = emptyMap(),
+            allocationError = null,
         )
     }
 

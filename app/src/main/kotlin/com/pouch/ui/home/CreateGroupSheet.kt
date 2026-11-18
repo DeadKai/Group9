@@ -131,6 +131,7 @@ fun CreateGroupSheet(
                 }
             }
 
+            state.saveError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Spacer(Modifier.height(24.dp))
             Button(
                 onClick = viewModel::save,

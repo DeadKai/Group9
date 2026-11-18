@@ -2,9 +2,9 @@ package com.pouch.ui.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -37,9 +37,9 @@ object ProfileRoute
 @Serializable
 object BillHistoryRoute
 
+/** Creates a fresh set of destinations when the active account changes. */
 @Composable
-fun PouchNavHost(navController: NavHostController = rememberNavController(),
-                 authViewModel: AuthViewModel = viewModel(factory = AuthViewModel.Factory)) {
+fun PouchNavHost(authViewModel: AuthViewModel = viewModel(factory = AuthViewModel.Factory)) {
 
     val currentUser by authViewModel.currentUser.collectAsStateWithLifecycle()
 
@@ -49,6 +49,15 @@ fun PouchNavHost(navController: NavHostController = rememberNavController(),
         return
     }
 
+    key(currentUser?.uid) {
+        PouchDestinations(authViewModel)
+    }
+}
+
+/** Hosts the screens available to the active account. */
+@Composable
+private fun PouchDestinations(authViewModel: AuthViewModel) {
+    val navController = rememberNavController()
     NavHost(navController = navController, startDestination = HomeRoute) {
 
         composable<HomeRoute> {
