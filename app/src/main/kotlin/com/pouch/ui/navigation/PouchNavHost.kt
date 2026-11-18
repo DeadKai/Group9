@@ -95,10 +95,6 @@ fun PouchNavHost(navController: NavHostController = rememberNavController(),
             ProfileScreen(
                 onBack = {
                     navController.popBackStack()
-                },
-                onSignOut = {
-                    navController.popBackStack(HomeRoute, inclusive = false)
-                    authViewModel.signOut()
                 }
             )
         }
@@ -107,6 +103,9 @@ fun PouchNavHost(navController: NavHostController = rememberNavController(),
             SettingsScreen(
                 onBack = {
                     navController.popBackStack()
+                },
+                onProfile = {
+                    navController.navigate(ProfileRoute)
                 },
                 onSignOut = {
                     // Return to Home before signing out

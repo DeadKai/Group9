@@ -56,13 +56,13 @@ import com.pouch.ui.theme.PouchColors
 fun SettingsScreen(
     onBack: () -> Unit,
     onSignOut: () -> Unit,
+    onProfile: () -> Unit,
     viewModel: SettingsViewModel = pouchViewModel { SettingsViewModel(it.authRepository) },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     var showSignOutDialog by rememberSaveable { mutableStateOf(false) }
-    var showPersonalInfo by rememberSaveable { mutableStateOf(false) }
     var showHelp by rememberSaveable { mutableStateOf(false) }
 
     // Notification switch is stored on the device. (It only saves the choice for now;
@@ -91,7 +91,7 @@ fun SettingsScreen(
                 icon = Icons.Outlined.Person,
                 title = "Personal information",
                 subtitle = "View and update your details",
-                onClick = { showPersonalInfo = true },
+                onClick = onProfile,
                 trailing = { Chevron() },
             )
 
@@ -142,15 +142,6 @@ fun SettingsScreen(
             Spacer(Modifier.height(16.dp))
         }
     }
-
-    if (showPersonalInfo) {
-        PersonalInfoSheet(
-            name = state.name,
-            email = state.email,
-            onDismiss = { showPersonalInfo = false },
-        )
-    }
-
     if (showHelp) {
         HelpSheet(onDismiss = { showHelp = false })
     }
