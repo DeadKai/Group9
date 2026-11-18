@@ -16,61 +16,80 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+/** Which login action is running, so only that button shows a spinner. */
+enum class AuthAction { EMAIL, GOOGLE }
+
 class AuthViewModel(
     private val authRepository: AuthRepository
 ) : ViewModel() {
     val currentUser: StateFlow<FirebaseUser?> = authRepository.currentUser
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), authRepository.user())
 
-    var isLoading by mutableStateOf(false)
+    /** null = nothing is loading. */
+    var loadingAction by mutableStateOf<AuthAction?>(null)
         private set
+
+    val isLoading: Boolean
+        get() = loadingAction != null
 
     var errorMessage by mutableStateOf<String?>(null)
         private set
 
     fun signIn(email: String, password: String) {
         viewModelScope.launch {
-            isLoading = true
+            loadingAction = AuthAction.EMAIL
             errorMessage = null
             try {
                 authRepository.signIn(email, password)
             } catch (e: Exception) {
                 errorMessage = e.localizedMessage ?: "Sign-in failed"
             } finally {
-                isLoading = false
+                loadingAction = null
             }
         }
     }
 
     fun signUp(fullName: String, email: String, password: String) {
         viewModelScope.launch {
-            isLoading = true
+            loadingAction = AuthAction.EMAIL
             errorMessage = null
             try {
                 authRepository.signUp(fullName, email, password)
             } catch (e: Exception) {
                 errorMessage = e.localizedMessage ?: "Sign-up failed"
             } finally {
-                isLoading = false
+                loadingAction = null
             }
         }
     }
 
     fun signInWithGoogle(idToken: String) {
         viewModelScope.launch {
-            isLoading = true
+            loadingAction = AuthAction.GOOGLE
             errorMessage = null
             try {
                 authRepository.signInWithGoogle(idToken)
             } catch (e: Exception) {
                 errorMessage = e.localizedMessage ?: "Google sign-in failed"
             } finally {
-                isLoading = false
+                loadingAction = null
             }
         }
     }
 
     fun setError(message: String?) {
+        errorMessage = message
+    }
+
+    /** Called when the Google account picker opens, so the Google button shows a spinner right away. */
+    fun startGoogleSignIn() {
+        loadingAction = AuthAction.GOOGLE
+        errorMessage = null
+    }
+
+    /** Called when the Google picker fails or the user closes it. */
+    fun googleSignInFailed(message: String?) {
+        loadingAction = null
         errorMessage = message
     }
 
@@ -96,4 +115,4 @@ class AuthViewModel(
             }
         }
     }
-}
+}
