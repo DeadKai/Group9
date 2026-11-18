@@ -79,13 +79,22 @@ fun GroupScreen(
     var showAddMember by remember { mutableStateOf(false) }
     var receiptToDelete by remember { mutableStateOf<Receipt?>(null) }
     var receiptToEdit by remember { mutableStateOf<Receipt?>(null) }
+    var confirmDeleteGroup by remember { mutableStateOf(false) }
 
     LaunchedEffect(message) { message?.let { snackbar.showSnackbar(it); viewModel.messageShown() } }
 
     val title = (state as? UiState.Success)?.data?.group?.let { "${it.icon} ${it.name}" } ?: "Group"
 
     Scaffold(
-        topBar = { BackTopBar(title, onBack) },
+        topBar = {
+            BackTopBar(title, onBack) {
+                if (state is UiState.Success) {
+                    IconButton(onClick = { confirmDeleteGroup = true }) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete group")
+                    }
+                }
+            }
+        },
         snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
             if (state is UiState.Success) {
@@ -158,6 +167,25 @@ fun GroupScreen(
                 }
             },
             dismissButton = { TextButton(onClick = { receiptToDelete = null }) { Text("Cancel") } },
+        )
+    }
+
+    if (confirmDeleteGroup) {
+        AlertDialog(
+            onDismissRequest = { confirmDeleteGroup = false },
+            title = { Text("Delete group?") },
+            text = { Text("The group and all its receipts will be deleted. This can't be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDeleteGroup = false
+                    viewModel.deleteGroup(onDeleted = onBack)
+                }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeleteGroup = false }) { Text("Cancel") }
+            },
         )
     }
 

@@ -113,6 +113,12 @@ class GroupViewModel(
             _message.value = "Receipt deleted"
         }
     }
+    fun deleteGroup(onDeleted: () -> Unit) {
+        viewModelScope.launch {
+            repository.deleteGroup(groupId)
+            onDeleted() //navigate back only after the delete is saved
+        }
+    }
     fun updateReceipt(
         receipt: Receipt,
         title: String,
