@@ -297,8 +297,8 @@ private fun HelpSheet(onDismiss: () -> Unit) {
                 "Equally by default. Switch to \"Custom split\" to set an exact amount for each member.",
             )
             Faq(
-                "Why can't I remove a member?",
-                "A group needs at least two members, and members that are part of an existing receipt can't be removed until those receipts are deleted or updated.",
+                "Who can manage group members?",
+                "The group owner can manage members. Removing a friend's access preserves their existing expenses.",
             )
         }
     }

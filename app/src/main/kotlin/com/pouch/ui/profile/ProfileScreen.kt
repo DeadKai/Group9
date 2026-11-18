@@ -56,7 +56,12 @@ fun ProfileScreen(
                         state.profile?.fullName ?: "My profile",
                         style = MaterialTheme.typography.headlineMedium
                     )
-                    Text("@${state.profile?.username.orEmpty()}")
+                    state.profile?.let { profile ->
+                        Text(
+                            if (profile.username.isBlank()) "Set a username so friends can find you."
+                            else "@${profile.username}"
+                        )
+                    }
                     Text(state.profile?.email.orEmpty())
                 }
 
@@ -82,14 +87,23 @@ fun ProfileScreen(
                         value = search,
                         onValueChange = { search = it },
                         label = { Text("Search username") },
+                        supportingText = { Text("Use the username shown on their profile.") },
                         singleLine = true,
+                        enabled = !state.searching,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Button(
                         onClick = { viewModel.search(search) },
-                        enabled = search.isNotBlank() && !state.busy
+                        enabled = search.trim().removePrefix("@").isNotBlank() && !state.busy && !state.searching
                     ) {
-                        Text("Search")
+                        Text(if (state.searching) "Searching…" else "Search")
+                    }
+                    state.searchMessage?.let { message ->
+                        Text(
+                            text = message,
+                            color = if (state.searchFailed) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
 

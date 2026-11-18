@@ -19,7 +19,7 @@ class PouchApp : Application() {
 
 class AppContainer(app: Application) {
     val authRepository = AuthRepository()
-    val groupRepository = GroupRepository(File(app.filesDir, "pouch-data.json"))
+    val groupRepository = GroupRepository(File(app.filesDir, "pouch-data.json"), authRepository)
     val receiptScanner = ReceiptScanner(app)
     /** Shared "it worked" overlay, see ui/common/Success.kt */
     val success = SuccessController()

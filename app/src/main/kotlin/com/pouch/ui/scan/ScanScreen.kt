@@ -112,6 +112,14 @@ fun ScanScreen(
         when {
             !state.groupsLoaded -> LoadingView(modifier)
 
+            state.groupsLoadError != null -> EmptyView(
+                title = "Could not load groups",
+                message = state.groupsLoadError.orEmpty(),
+                actionLabel = "Go back",
+                onAction = onBack,
+                modifier = modifier,
+            )
+
             state.groups.isEmpty() -> EmptyView(
                 title = "Create a group first",
                 message = "Receipts are split inside a group. Go back and create one on the Home screen.",

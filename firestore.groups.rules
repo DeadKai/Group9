@@ -1,0 +1,36 @@
+// Merge this match block into the active Firestore rules, inside
+// match /databases/{database}/documents. Keep the existing profile and friend rules.
+// Remove any overlapping allow rule that grants broader access to groups.
+match /groups/{groupId} {
+  function signedIn() {
+    return request.auth != null;
+  }
+
+  function isMember() {
+    return signedIn() && request.auth.uid in resource.data.memberUserIds;
+  }
+
+  function isOwner() {
+    return signedIn() && resource.data.createdByUserId == request.auth.uid;
+  }
+
+  function validGroup() {
+    return request.resource.data.id == groupId
+      && request.resource.data.memberUserIds is list
+      && request.resource.data.createdByUserId in request.resource.data.memberUserIds
+      && request.resource.data.members is list
+      && request.resource.data.receipts is list;
+  }
+
+  allow read: if isMember();
+  allow create: if signedIn() && validGroup()
+    && request.resource.data.createdByUserId == request.auth.uid
+    && request.resource.data.memberUserIds == [request.auth.uid];
+  allow update: if validGroup()
+    && request.resource.data.createdByUserId == resource.data.createdByUserId
+    && (isOwner() || (
+      isMember()
+      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['receipts'])
+    ));
+  allow delete: if isOwner();
+}
