@@ -27,8 +27,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -133,9 +134,22 @@ fun GroupScreen(
                 is UiState.Error -> ErrorView(s.message, onRetry = onBack)
                 is UiState.Success -> {
                     val details = s.data
-                    TabRow(selectedTabIndex = tab) {
-                        TABS.forEachIndexed { i, label ->
-                            Tab(selected = tab == i, onClick = { tab = i }, text = { Text(label) })
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        GroupStat("Total spent", details.group.totalSpentCents.formatMoney(), Modifier.weight(1.4f))
+                        GroupStat("Members", details.group.members.size.toString(), Modifier.weight(1f))
+                        GroupStat("Receipts", details.group.receipts.size.toString(), Modifier.weight(1f))
+                    }
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                        TABS.forEachIndexed { index, label ->
+                            SegmentedButton(
+                                selected = tab == index,
+                                onClick = { tab = index },
+                                shape = SegmentedButtonDefaults.itemShape(index, TABS.size),
+                                icon = {},
+                            ) { Text(label) }
                         }
                     }
                     when (tab) {
@@ -234,6 +248,20 @@ fun GroupScreen(
         }
     }
 }
+/** Displays one group statistic above the tabs. */
+@Composable
+private fun GroupStat(label: String, value: String, modifier: Modifier) {
+    Card(modifier = modifier) {
+        Column(
+            Modifier.fillMaxWidth().padding(vertical = 12.dp, horizontal = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(value, style = MaterialTheme.typography.titleSmall)
+            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
 @Composable
 private fun ReceiptsTab(details: GroupDetails, onAddReceipt: () -> Unit, onDelete: (Receipt) -> Unit, onEdit: (Receipt) -> Unit){
     if (details.group.receipts.isEmpty()) {
@@ -312,17 +340,33 @@ private fun MembersTab(
     ownerId: String?,
     onRemove: ((Member) -> Unit)?,
 ) {
+    var memberToRemove by remember { mutableStateOf<Member?>(null) }
     LazyColumn(contentPadding = listPadding, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         items(members, key = { it.id }) { member ->
             ListCard {
                 Text(member.name, modifier = Modifier.weight(1f))
                 if (onRemove != null && member.id != ownerId) {
-                    IconButton(onClick = { onRemove(member) }) {
+                    IconButton(onClick = { memberToRemove = member }) {
                         Icon(Icons.Default.Delete, contentDescription = "Remove ${member.name}")
                     }
                 }
             }
         }
+    }
+    memberToRemove?.let { member ->
+        AlertDialog(
+            onDismissRequest = { memberToRemove = null },
+            title = { Text("Remove ${member.name}?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    memberToRemove = null
+                    onRemove?.invoke(member)
+                }) { Text("Remove member", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { memberToRemove = null }) { Text("Cancel") }
+            },
+        )
     }
 }
 

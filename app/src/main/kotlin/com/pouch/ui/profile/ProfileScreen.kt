@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -53,21 +54,28 @@ fun ProfileScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item {
-                    Text(
-                        state.profile?.fullName ?: "My profile",
-                        style = MaterialTheme.typography.headlineMedium
-                    )
-                    Text(state.profile?.email.orEmpty())
-                }
-
-                item {
-                    OutlinedButton(
-                        onClick = {
-                            name = state.profile?.fullName.orEmpty()
-                            editing = true
-                        }
+                    val profile = state.profile
+                    val fullName = profile?.fullName.orEmpty().ifBlank { "My profile" }
+                    val initials = fullName.split(Regex("\\s+")).take(2)
+                        .joinToString("") { it.take(1).uppercase() }
+                    Column(
+                        Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Text("Edit profile")
+                        Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.primary) {
+                            Box(Modifier.size(76.dp), contentAlignment = Alignment.Center) {
+                                Text(initials, style = MaterialTheme.typography.headlineMedium)
+                            }
+                        }
+                        Text(fullName, style = MaterialTheme.typography.headlineSmall)
+                        Text(profile?.email.orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (profile != null) {
+                            OutlinedButton(onClick = {
+                                name = profile.fullName
+                                editing = true
+                            }) { Text("Edit profile") }
+                        }
                     }
                 }
 
