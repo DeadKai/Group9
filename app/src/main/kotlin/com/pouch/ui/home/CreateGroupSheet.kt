@@ -35,7 +35,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.pouch.domain.GroupIcon
 import com.pouch.ui.common.ValidatedTextField
 import com.pouch.ui.common.pouchViewModel
 
@@ -88,11 +87,11 @@ fun CreateGroupSheet(
                 Modifier.horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                GroupIcon.entries.forEach { icon ->
+                GROUP_EMOJIS.forEach { emoji ->
                     FilterChip(
-                        selected = icon == state.icon,
-                        onClick = { viewModel.onIconSelected(icon) },
-                        label = { Text(icon.emoji) },
+                        selected = emoji == state.emoji,
+                        onClick = { viewModel.onEmojiSelected(emoji) },
+                        label = { Text(emoji) },
                     )
                 }
             }

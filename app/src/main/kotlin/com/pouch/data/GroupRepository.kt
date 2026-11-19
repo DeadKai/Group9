@@ -2,7 +2,6 @@ package com.pouch.data
 
 import com.google.firebase.firestore.FirebaseFirestore
 import com.pouch.domain.Group
-import com.pouch.domain.GroupIcon
 import com.pouch.domain.Member
 import com.pouch.domain.Receipt
 import com.pouch.domain.MemberAmount
@@ -77,7 +76,7 @@ class GroupRepository(
     fun observeGroup(groupId: String): Flow<Group?> =
         groups.map { list -> list.firstOrNull { it.id == groupId } }
 
-    suspend fun createGroup(name: String, icon: GroupIcon, otherMembers: List<String>): String {
+    suspend fun createGroup(name: String, icon: String, otherMembers: List<String>): String {
         val user = auth.user()
         val owner = Member(
             id = newId(),
@@ -172,62 +171,70 @@ class GroupRepository(
         )
     }
 
-    suspend fun addReceipt(
-        groupId: String,
-        title: String,
-        totalCents: Long,
-        payments: List<MemberAmount>,
-        shares: List<MemberAmount>,
-        splitMode: SplitMode,
-    ) = updateGroup(groupId) { group ->
-        validateReceipt(group, title, totalCents, payments, shares)
-        val now = System.currentTimeMillis()
+    suspend fun addReceipt(groupId: String, title: String, totalCents: Long, payments: List<MemberAmount>, shares: List<MemberAmount>, splitMode: SplitMode) = updateGroup(groupId) { group ->
+
+        require(title.isNotBlank() && title.length <= 60)
+        require(totalCents > 0)
+
+        val memberIds = group.members.map { it.id }.toSet()
+
+        fun valid(entries: List<MemberAmount>): Boolean =
+            entries.isNotEmpty() &&
+                    entries.all {
+                        it.memberId in memberIds &&
+                                it.amountCents >= 0
+                    } &&
+                    entries.map { it.memberId }.distinct().size ==
+                    entries.size &&
+                    entries.sumOf { it.amountCents } == totalCents
+
+        require(valid(payments)) {
+            "Payments must add up to the receipt total"
+        }
+
+        require(valid(shares)) {
+            "Shares must add up to the receipt total"
+        }
+
         val receipt = Receipt(
             id = newId(),
             groupId = groupId,
             title = title.trim(),
             totalCents = totalCents,
-            paidByMemberId = payments.first { it.amountCents > 0 }.memberId,
-            createdAt = now,
-            modifiedAt = now,
+            paidByMemberId = payments.first {
+                it.amountCents > 0
+            }.memberId,
+            createdAt = System.currentTimeMillis(),
             payments = payments.filter { it.amountCents > 0 },
             shares = shares.filter { it.amountCents > 0 },
-            splitMode = splitMode,
+            splitMode = splitMode
         )
-        group.copy(receipts = listOf(receipt) + group.receipts)
-    }
 
-    suspend fun updateReceipt(
+        group.copy(
+            receipts = listOf(receipt) + group.receipts
+        )
+    }
+    suspend fun addReceipt(
         groupId: String,
-        receiptId: String,
         title: String,
         totalCents: Long,
-        payments: List<MemberAmount>,
-        shares: List<MemberAmount>,
-        splitMode: SplitMode,
-    ) = updateGroup(groupId) { group ->
-        require(group.receipts.any { it.id == receiptId }) { "This receipt no longer exists" }
-        validateReceipt(group, title, totalCents, payments, shares)
-        group.copy(
-            receipts = group.receipts.map { receipt ->
-                if (receipt.id != receiptId) receipt
-                else receipt.copy(
-                    title = title.trim(),
-                    totalCents = totalCents,
-                    paidByMemberId = payments.first { it.amountCents > 0 }.memberId,
-                    payments = payments.filter { it.amountCents > 0 },
-                    shares = shares.filter { it.amountCents > 0 },
-                    splitMode = splitMode,
-                    modifiedAt = System.currentTimeMillis(),
-                )
-            }
-        )
-    }
+        paidByMemberId: String
+    ) =
+        updateGroup(groupId) { group ->
+            val receipt = Receipt(
+                id = newId(),
+                groupId = groupId,
+                title = title.trim(),
+                totalCents = totalCents,
+                paidByMemberId = paidByMemberId,
+                createdAt = System.currentTimeMillis(),
+            )
+            group.copy(receipts = listOf(receipt) + group.receipts)
+        }
 
     suspend fun deleteReceipt(groupId: String, receiptId: String) = updateGroup(groupId) { group ->
         group.copy(receipts = group.receipts.filterNot { it.id == receiptId })
     }
-
     suspend fun deleteGroup(groupId: String) {
         if (auth.user() == null) {
             update { list -> list.filterNot { it.id == groupId } }
@@ -235,25 +242,49 @@ class GroupRepository(
             groupsCollection.document(groupId).delete().await()
         }
     }
+    suspend fun updateReceipt(groupId: String, receiptId: String, title: String,totalCents: Long, payments: List<MemberAmount>, shares: List<MemberAmount>, splitMode: SplitMode) = updateGroup(groupId) { group ->
 
-    /** Payments and shares must each cover the whole total, once per current member. */
-    private fun validateReceipt(
-        group: Group,
-        title: String,
-        totalCents: Long,
-        payments: List<MemberAmount>,
-        shares: List<MemberAmount>,
-    ) {
-        require(title.isNotBlank() && title.trim().length <= 60) { "Enter a title of up to 60 characters" }
-        require(totalCents > 0) { "The total must be more than zero" }
+        require(title.isNotBlank() && title.length <= 60)
+        require(totalCents > 0)
+        require(group.receipts.any { it.id == receiptId })
+
         val memberIds = group.members.map { it.id }.toSet()
-        fun valid(entries: List<MemberAmount>) =
+
+        fun valid(entries: List<MemberAmount>): Boolean =
             entries.isNotEmpty() &&
-                entries.all { it.memberId in memberIds && it.amountCents >= 0 } &&
-                entries.map { it.memberId }.distinct().size == entries.size &&
-                entries.sumOf { it.amountCents } == totalCents
-        require(valid(payments)) { "Payments must add up to the receipt total" }
-        require(valid(shares)) { "Shares must add up to the receipt total" }
+                    entries.all {
+                        it.memberId in memberIds &&
+                                it.amountCents >= 0
+                    } &&
+                    entries.map { it.memberId }.distinct().size ==
+                    entries.size &&
+                    entries.sumOf { it.amountCents } == totalCents
+
+        require(valid(payments))
+        require(valid(shares))
+
+        group.copy(
+            receipts = group.receipts.map { receipt ->
+                if (receipt.id == receiptId) {
+                    receipt.copy(
+                        title = title.trim(),
+                        totalCents = totalCents,
+                        paidByMemberId = payments.first {
+                            it.amountCents > 0
+                        }.memberId,
+                        payments = payments.filter {
+                            it.amountCents > 0
+                        },
+                        shares = shares.filter {
+                            it.amountCents > 0
+                        },
+                        splitMode = splitMode
+                    )
+                } else {
+                    receipt
+                }
+            }
+        )
     }
 
     private fun newId() = UUID.randomUUID().toString()
@@ -274,20 +305,9 @@ class GroupRepository(
             val group = transaction.get(ref).toObject(Group::class.java)
                 ?: error("This group no longer exists")
             check(uid in group.memberUserIds) { "You no longer have access to this group" }
-            // Write only the fields that changed. Rewriting the whole document would drop
-            // fields this app version doesn't know, and the rules only let members change receipts.
-            val changes = changedFields(group, change(group))
-            if (changes.isNotEmpty()) transaction.update(ref, changes)
+            transaction.set(ref, change(group))
             Unit
         }.await()
-    }
-
-    private fun changedFields(old: Group, new: Group): Map<String, Any> = buildMap {
-        if (new.name != old.name) put("name", new.name)
-        if (new.icon != old.icon) put("icon", new.icon)
-        if (new.members != old.members) put("members", new.members)
-        if (new.receipts != old.receipts) put("receipts", new.receipts)
-        if (new.memberUserIds != old.memberUserIds) put("memberUserIds", new.memberUserIds)
     }
 
 
