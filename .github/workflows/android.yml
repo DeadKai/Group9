@@ -1,0 +1,68 @@
+# Builds Pouch on GitHub and keeps an installable APK for each environment.
+#
+#   develop branch -> "pouch-staging" APK     (for the team and testers)
+#   main branch    -> "pouch-production" APK  (for the demo / release)
+#   tag v1.0, v1.1 -> GitHub Release with the APK attached
+#
+# Pull Requests into develop or main run the unit tests and the build first,
+# so a broken change is visible before it is merged.
+# Download APKs from: GitHub -> Actions -> a run -> Artifacts.
+
+name: Android build
+
+on:
+  push:
+    branches: [develop, main]
+    tags: ['v*']
+  pull_request:
+    branches: [develop, main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to create a GitHub Release from a tag
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      # Same JDK as gradle/gradle-daemon-jvm.properties asks for (toolchainVersion=25),
+      # so Gradle doesn't have to download one.
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - name: Set up Gradle (with caching)
+        uses: gradle/actions/setup-gradle@v4
+
+      # gradlew committed from Windows is often not marked executable on Linux.
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest
+
+      - name: Build APK
+        run: ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.ref_name == 'main' && 'pouch-production' || 'pouch-staging' }}
+          path: app/build/outputs/apk/debug/*.apk
+
+      - name: Upload test report (if tests failed)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: app/build/reports/tests/
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/build/outputs/apk/debug/*.apk
