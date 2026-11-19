@@ -91,7 +91,7 @@ fun GroupScreen(
     LaunchedEffect(message) { message?.let { snackbar.showSnackbar(it); viewModel.messageShown() } }
 
     val details = (state as? UiState.Success)?.data
-    val title = details?.group?.let { "${it.icon} ${it.name}" } ?: "Group"
+    val title = details?.group?.let { "${it.icon.emoji} ${it.name}" } ?: "Group"
 
     Scaffold(
         topBar = {
@@ -255,8 +255,11 @@ private fun ReceiptsTab(details: GroupDetails, onAddReceipt: () -> Unit, onDelet
             ListCard {
                 Column(Modifier.weight(1f)) {
                     Text(receipt.title, style = MaterialTheme.typography.titleSmall)
+                    val payers = SplitCalculator.effectivePayments(receipt)
+                    val paidBy = details.memberName(payers.first().memberId) +
+                        if (payers.size > 1) " + ${payers.size - 1} more" else ""
                     Text(
-                        "Paid by ${details.memberName(receipt.paidByMemberId)} · " +
+                        "Paid by $paidBy · " +
                             DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(receipt.createdAt)),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
