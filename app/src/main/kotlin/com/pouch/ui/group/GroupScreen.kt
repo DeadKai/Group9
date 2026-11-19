@@ -65,7 +65,7 @@ import com.pouch.ui.common.pouchViewModel
 import com.pouch.ui.theme.PouchColors
 import java.text.DateFormat
 import java.util.Date
-
+import java.util.UUID
 
 private val TABS = listOf("Receipts", "Balances", "Members")
 
@@ -463,11 +463,33 @@ private fun EditReceiptDialog(
         mutableStateOf(receipt.splitMode)
     }
     var receiptItems by remember(receipt.id) {
-        mutableStateOf(receipt.items)
+        mutableStateOf(receipt.items.toList())
     }
 
     var error by remember(receipt.id) {
         mutableStateOf<String?>(null)
+    }
+
+    fun recalculateItems() {
+        val newTotal = SplitCalculator.itemTotal(receiptItems)
+
+        amount = centsText(newTotal)
+
+        val validMemberIds = members.map { it.id }.toSet()
+
+        val validItems = receiptItems.filter { item ->
+            item.assignedMemberIds.isNotEmpty() &&
+                    item.assignedMemberIds.all { it in validMemberIds }
+        }
+
+        shares = SplitCalculator.itemShares(validItems, members)
+
+        if (payments.size <= 1) {
+            val payerId = payments.keys.firstOrNull()
+                ?: receipt.paidByMemberId
+
+            payments = mapOf(payerId to newTotal)
+        }
     }
 
     val total = parseCents(amount) ?: 0L
@@ -499,15 +521,22 @@ private fun EditReceiptDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                ValidatedTextField(
-                    value = title,
-                    onValueChange = {
-                        title = it
+                if (splitMode == SplitMode.BY_ITEM) {
+                    Text(
+                        text = "Total (€): ${centsText(total)}",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                } else {
+                    ValidatedTextField(
+                        value = amount,
+                        onValueChange = {
+                            amount = it
+                            error = null
+                        },
+                        label = "Amount (€)",
                         error = null
-                    },
-                    label = "Expense name",
-                    error = null
-                )
+                    )
+                }
 
                 ValidatedTextField(
                     value = amount,
@@ -533,6 +562,11 @@ private fun EditReceiptDialog(
                         }
 
                         splitMode = mode
+
+                        if (mode == SplitMode.BY_ITEM) {
+                            recalculateItems()
+                        }
+
                         error = null
                     },
                     onPaymentsChange = {
@@ -542,10 +576,48 @@ private fun EditReceiptDialog(
                     onSharesChange = {
                         shares = it
                         splitMode = SplitMode.CUSTOM
+                        amount = centsText(it.values.sum())
+                        error = null
+                    },
+
+                    items = receiptItems,
+
+                    onSaveItem = { id, name, price, memberIds ->
+
+                        val item = ReceiptItem(
+                            id = id ?: UUID.randomUUID().toString(),
+                            name = name,
+                            totalCents = price,
+                            assignedMemberIds = memberIds
+                        )
+
+                        receiptItems = if (id == null) {
+                            // Add a new item
+                            receiptItems + item
+                        } else {
+                            // Update the existing item
+                            receiptItems.map { existing ->
+                                if (existing.id == id) {
+                                    item
+                                } else {
+                                    existing
+                                }
+                            }
+                        }
+
+                        recalculateItems()
+                        error = null
+                    },
+
+                    onRemoveItem = { id ->
+                        receiptItems = receiptItems.filterNot {
+                            it.id == id
+                        }
+
+                        recalculateItems()
                         error = null
                     }
                 )
-
                 if (error != null) {
                     Text(
                         text = error.orEmpty(),
@@ -594,8 +666,26 @@ private fun EditReceiptDialog(
                         !valid(payments) ->
                             error = "Payments must equal the total"
 
+
                         !valid(displayedShares) ->
                             error = "Shares must equal the total"
+
+                        splitMode == SplitMode.BY_ITEM &&
+                                (
+                                        receiptItems.isEmpty() ||
+                                                receiptItems.any { item ->
+                                                    item.name.isBlank() ||
+                                                            item.totalCents <= 0L ||
+                                                            item.assignedMemberIds.isEmpty() ||
+                                                            item.assignedMemberIds.distinct().size !=
+                                                            item.assignedMemberIds.size ||
+                                                            item.assignedMemberIds.any { id ->
+                                                                id !in memberIds
+                                                            }
+                                                } ||
+                                                SplitCalculator.itemTotal(receiptItems) != cents
+                                        ) ->
+                            error = "Check all items before saving"
 
                         else -> {
                             onSave(

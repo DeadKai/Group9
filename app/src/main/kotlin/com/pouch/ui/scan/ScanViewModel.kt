@@ -74,13 +74,23 @@ fun parseAmountToCents(text: String): Long? {
     return BigDecimal(normalized).movePointRight(2).toLong()
 }
 
+
 private fun defaultPaymentForTotal(
     s: ScanUiState,
     total: Long
 ): Map<String, Long> {
-    if (s.payments.size > 1) return s.payments
 
-    val payerId = s.payments.keys.firstOrNull()
+    val activePayers = s.payments.filterValues {
+        it > 0L
+    }
+
+    // Preserve manually entered payments when
+    // multiple people paid.
+    if (activePayers.size > 1) {
+        return s.payments
+    }
+
+    val payerId = activePayers.keys.firstOrNull()
         ?: s.paidByMemberId
         ?: s.selectedGroup?.members?.firstOrNull()?.id
 
@@ -108,56 +118,35 @@ class ScanViewModel(
     )
     val state: StateFlow<ScanUiState> = _state.asStateFlow()
 
-    fun addItem() {
-        _state.update { s ->
-            s.copy(
-                items = s.items + ReceiptItem(
-                    id = UUID.randomUUID().toString(),
-                    name = "",
-                    totalCents = 0L,
-                    assignedMemberIds = emptyList()
-                ),
-                allocationError = null
-            )
-        }
-    }
 
-    fun updateItemName(id: String, name: String) {
+    fun saveItem(
+        id: String?,
+        name: String,
+        priceCents: Long,
+        memberIds: List<String>
+    ) {
         _state.update { s ->
-            s.copy(
-                items = s.items.map {
-                    if (it.id == id) it.copy(name = name) else it
-                },
-                allocationError = null
+            val item = ReceiptItem(
+                id = id ?: UUID.randomUUID().toString(),
+                name = name.trim(),
+                totalCents = priceCents,
+                assignedMemberIds = memberIds
             )
-        }
-    }
 
-    fun updateItemPrice(id: String, cents: Long) {
-        _state.update { s ->
-            s.copy(
-                items = s.items.map {
-                    if (it.id == id) it.copy(totalCents = cents) else it
-                },
-                allocationError = null
-            )
-        }
-        recalculateItemSplit()
-    }
+            val updatedItems = if (id == null) {
+                s.items + item
+            } else {
+                s.items.map { existing ->
+                    if (existing.id == id) item else existing
+                }
+            }
 
-    fun updateItemMembers(id: String, memberIds: List<String>) {
-        _state.update { s ->
             s.copy(
-                items = s.items.map {
-                    if (it.id == id) {
-                        it.copy(assignedMemberIds = memberIds)
-                    } else {
-                        it
-                    }
-                },
+                items = updatedItems,
                 allocationError = null
             )
         }
+
         recalculateItemSplit()
     }
 
@@ -417,6 +406,35 @@ class ScanViewModel(
         val members = validGroup.members
         val memberIds = members.map { it.id }.toSet()
 
+        if (s.splitMode == SplitMode.BY_ITEM) {
+
+            val itemsValid =
+                s.items.isNotEmpty() &&
+                        s.items.all { item ->
+                            item.name.isNotBlank() &&
+                                    item.totalCents > 0L &&
+                                    item.assignedMemberIds.isNotEmpty() &&
+                                    item.assignedMemberIds.distinct().size ==
+                                    item.assignedMemberIds.size &&
+                                    item.assignedMemberIds.all { id ->
+                                        id in memberIds
+                                    }
+                        }
+
+            if (
+                !itemsValid ||
+                SplitCalculator.itemTotal(s.items) != total
+            ) {
+                _state.update {
+                    it.copy(
+                        allocationError =
+                            "Check item names, prices and assigned members"
+                    )
+                }
+                return
+            }
+        }
+
         // Default payer is the first group member.
         val payerId = s.paidByMemberId
             ?.takeIf { it in memberIds }
@@ -522,7 +540,12 @@ class ScanViewModel(
                     totalCents = total,
                     payments = payments,
                     shares = shares,
-                    splitMode = s.splitMode
+                    splitMode = s.splitMode,
+                    items = if (s.splitMode == SplitMode.BY_ITEM) {
+                        s.items
+                    } else {
+                        emptyList()
+                    }
                 )
 
                 success.show(

@@ -17,7 +17,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -28,7 +27,6 @@ import androidx.compose.ui.unit.dp
 import com.pouch.domain.Member
 import com.pouch.domain.MemberAmount
 import com.pouch.domain.ReceiptItem
-import com.pouch.domain.SplitCalculator
 import com.pouch.domain.SplitMode
 import java.math.BigDecimal
 
@@ -92,11 +90,9 @@ fun ReceiptSplitEditor(
     onPaymentsChange: (Map<String, Long>) -> Unit,
     onSharesChange: (Map<String, Long>) -> Unit,
     items: List<ReceiptItem> = emptyList(),
-    onAddItem: () -> Unit = {},
-    onRemoveItem: (String) -> Unit = {},
-    onItemNameChange: (String, String) -> Unit = { _, _ -> },
-    onItemPriceChange: (String, Long) -> Unit = { _, _ -> },
-    onItemMembersChange: (String, List<String>) -> Unit = { _, _ -> }
+    onSaveItem: (String?, String, Long, List<String>) -> Unit =
+        { _, _, _, _ -> },
+    onRemoveItem: (String) -> Unit = {}
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -134,7 +130,7 @@ fun ReceiptSplitEditor(
                 onClick = {
                     onSplitModeChange(SplitMode.EQUAL)
                 },
-                label = { Text("Equal split") }
+                label = { Text("Equal split", softWrap = false) }
             )
 
             FilterChip(
@@ -142,12 +138,12 @@ fun ReceiptSplitEditor(
                 onClick = {
                     onSplitModeChange(SplitMode.CUSTOM)
                 },
-                label = { Text("Custom split") }
+                label = { Text("Custom split", softWrap = false) }
             )
             FilterChip(
                 selected = splitMode == SplitMode.BY_ITEM,
                 onClick = { onSplitModeChange(SplitMode.BY_ITEM) },
-                label = { Text("By item") }
+                label = { Text("By item", softWrap = false) }
             )
         }
 
@@ -165,80 +161,232 @@ fun ReceiptSplitEditor(
         }
 
         if (splitMode == SplitMode.BY_ITEM) {
+
+            var itemName by remember { mutableStateOf("") }
+            var itemPrice by remember { mutableStateOf("") }
+            var selectedMembers by remember {
+                mutableStateOf<List<String>>(emptyList())
+            }
+            var editingItemId by remember {
+                mutableStateOf<String?>(null)
+            }
+            var itemError by remember {
+                mutableStateOf<String?>(null)
+            }
+
+            fun clearForm() {
+                itemName = ""
+                itemPrice = ""
+                selectedMembers = emptyList()
+                editingItemId = null
+                itemError = null
+            }
+
             Text(
-                "Add items and choose who owes for each one.",
-                style = MaterialTheme.typography.bodyMedium
+                "Added items (${items.size})",
+                style = MaterialTheme.typography.titleMedium
             )
 
-            items.forEachIndexed { index, item ->
-                key(item.id) {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+            if (items.isEmpty()) {
+                Text(
+                    "No items added yet.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            items.forEach { item ->
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        item.name.ifBlank { "Unnamed item" },
+                        style = MaterialTheme.typography.titleSmall
+                    )
+
+                    Text("${centsText(item.totalCents)} €")
+
+                    Text(
+                        members
+                            .filter { it.id in item.assignedMemberIds }
+                            .joinToString(", ") { it.name }
+                            .ifBlank { "No members selected" },
+                        style = MaterialTheme.typography.bodySmall
+                    )
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("Item ${index + 1}")
-
-                        OutlinedTextField(
-                            value = item.name,
-                            onValueChange = {
-                                onItemNameChange(item.id, it)
-                            },
-                            label = { Text("Item name") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        AmountField(
-                            label = "Price",
-                            amountCents = item.totalCents,
-                            onAmountChange = {
-                                onItemPriceChange(item.id, it)
+                        TextButton(
+                            onClick = {
+                                editingItemId = item.id
+                                itemName = item.name
+                                itemPrice = centsText(item.totalCents)
+                                selectedMembers =
+                                    item.assignedMemberIds.toList()
+                                itemError = null
                             }
-                        )
-
-                        Text("Who is this item for?")
-
-                        members.forEach { member ->
-                            FilterChip(
-                                selected = member.id in item.assignedMemberIds,
-                                onClick = {
-                                    val selected =
-                                        item.assignedMemberIds.toMutableList()
-
-                                    if (member.id in selected) {
-                                        selected.remove(member.id)
-                                    } else {
-                                        selected.add(member.id)
-                                    }
-
-                                    onItemMembersChange(item.id, selected)
-                                },
-                                label = { Text(member.name) }
-                            )
+                        ) {
+                            Text("Edit")
                         }
 
                         TextButton(
-                            onClick = { onRemoveItem(item.id) }
-                        ) {
-                            Text("Remove item")
-                        }
+                            onClick = {
+                                onRemoveItem(item.id)
 
-                        Spacer(Modifier.height(8.dp))
+                                if (editingItemId == item.id) {
+                                    clearForm()
+                                }
+                            }
+                        ) {
+                            Text(
+                                "Delete",
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
                 }
-            }
 
-            Button(
-                onClick = onAddItem,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("+ Add item")
+                Spacer(Modifier.height(8.dp))
             }
 
             Text(
-                "Items total: ${centsText(items.sumOf { it.totalCents })} €",
+                "Items total: ${
+                    centsText(items.sumOf { it.totalCents })
+                } €",
                 style = MaterialTheme.typography.titleMedium
             )
+
+            Text(
+                if (editingItemId == null) {
+                    "Add an item"
+                } else {
+                    "Edit item"
+                },
+                style = MaterialTheme.typography.titleMedium
+            )
+
+            OutlinedTextField(
+                value = itemName,
+                onValueChange = {
+                    itemName = it
+                    itemError = null
+                },
+                label = { Text("Item name") },
+                placeholder = { Text("e.g. Pizza") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            OutlinedTextField(
+                value = itemPrice,
+                onValueChange = { value ->
+                    if (
+                        value.isEmpty() ||
+                        value.matches(
+                            Regex("""\d*([.,]\d{0,2})?""")
+                        )
+                    ) {
+                        itemPrice = value
+                        itemError = null
+                    }
+                },
+                label = { Text("Price (€)") },
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Decimal
+                ),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Text(
+                "Who is this item for?",
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                members.forEach { member ->
+                    FilterChip(
+                        selected = member.id in selectedMembers,
+                        onClick = {
+                            selectedMembers =
+                                if (member.id in selectedMembers) {
+                                    selectedMembers - member.id
+                                } else {
+                                    selectedMembers + member.id
+                                }
+
+                            itemError = null
+                        },
+                        label = {
+                            Text(member.name, softWrap = false)
+                        }
+                    )
+                }
+            }
+
+            itemError?.let { message ->
+                Text(
+                    message,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+
+            Button(
+                onClick = {
+                    val price = parseCents(itemPrice)
+
+                    when {
+                        itemName.isBlank() -> {
+                            itemError = "Enter an item name"
+                        }
+
+                        price == null || price <= 0L -> {
+                            itemError = "Enter a valid price"
+                        }
+
+                        selectedMembers.isEmpty() -> {
+                            itemError = "Select at least one member"
+                        }
+
+                        else -> {
+                            onSaveItem(
+                                editingItemId,
+                                itemName.trim(),
+                                price,
+                                selectedMembers.toList()
+                            )
+
+                            clearForm()
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    if (editingItemId == null) {
+                        "+ Add item"
+                    } else {
+                        "Save item"
+                    }
+                )
+            }
+
+            if (editingItemId != null) {
+                TextButton(
+                    onClick = { clearForm() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Cancel editing")
+                }
+            }
         }
+
 
         val paidTotal = payments.values.sum()
         val splitTotal = shares.values.sum()

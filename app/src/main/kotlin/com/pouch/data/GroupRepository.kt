@@ -172,7 +172,7 @@ class GroupRepository(
         )
     }
 
-    suspend fun addReceipt(groupId: String, title: String, totalCents: Long, payments: List<MemberAmount>, shares: List<MemberAmount>, splitMode: SplitMode) = updateGroup(groupId) { group ->
+    suspend fun addReceipt(groupId: String, title: String, totalCents: Long, payments: List<MemberAmount>, shares: List<MemberAmount>, splitMode: SplitMode, items: List<ReceiptItem> = emptyList()) = updateGroup(groupId) { group ->
 
         require(title.isNotBlank() && title.length <= 60)
         require(totalCents > 0)
@@ -196,6 +196,35 @@ class GroupRepository(
         require(valid(shares)) {
             "Shares must add up to the receipt total"
         }
+        if (splitMode == SplitMode.BY_ITEM) {
+            require(items.isNotEmpty()) {
+                "Add at least one item"
+            }
+
+            require(items.all { item ->
+                item.name.isNotBlank() &&
+                        item.totalCents > 0L &&
+                        item.assignedMemberIds.isNotEmpty() &&
+                        item.assignedMemberIds.distinct().size ==
+                        item.assignedMemberIds.size &&
+                        item.assignedMemberIds.all { it in memberIds }
+            }) {
+                "Each item must have a name, price and members"
+            }
+
+            require(SplitCalculator.itemTotal(items) == totalCents) {
+                "Item prices must equal the receipt total"
+            }
+
+            val expectedShares =
+                SplitCalculator.itemShares(items, group.members)
+
+            require(expectedShares.all { (id, amount) ->
+                (shares.find { it.memberId == id }?.amountCents ?: 0L) == amount
+            }) {
+                "Item shares must match the receipt total"
+            }
+        }
 
         val receipt = Receipt(
             id = newId(),
@@ -208,9 +237,13 @@ class GroupRepository(
             createdAt = System.currentTimeMillis(),
             payments = payments.filter { it.amountCents > 0 },
             shares = shares.filter { it.amountCents > 0 },
-            splitMode = splitMode
+            splitMode = splitMode,
+            items = if (splitMode == SplitMode.BY_ITEM) {
+                items
+            } else {
+                emptyList()
+            }
         )
-
         group.copy(
             receipts = listOf(receipt) + group.receipts
         )
@@ -285,17 +318,17 @@ class GroupRepository(
         }
 
         if (splitMode == SplitMode.BY_ITEM) {
-            require(items.isNotEmpty()) {
-                "Add at least one item"
-            }
-
-            require(items.all {
-                it.name.isNotBlank() &&
-                        it.totalCents >= 0 &&
-                        it.assignedMemberIds.isNotEmpty() &&
-                        it.assignedMemberIds.all { id -> id in memberIds }
+            require(items.all { item ->
+                item.name.isNotBlank() &&
+                        item.totalCents > 0L &&
+                        item.assignedMemberIds.isNotEmpty() &&
+                        item.assignedMemberIds.distinct().size ==
+                        item.assignedMemberIds.size &&
+                        item.assignedMemberIds.all { id ->
+                            id in memberIds
+                        }
             }) {
-                "Each item needs a name and assigned members"
+                "Each item must have a name, price and members"
             }
 
             require(SplitCalculator.itemTotal(items) == totalCents) {
