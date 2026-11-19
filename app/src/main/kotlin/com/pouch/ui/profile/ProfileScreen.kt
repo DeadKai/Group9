@@ -4,9 +4,11 @@ package com.pouch.ui.profile
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -21,7 +23,6 @@ fun ProfileScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     var editing by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
-    var username by remember { mutableStateOf("") }
     var search by remember { mutableStateOf("") }
 
     Scaffold(
@@ -56,12 +57,6 @@ fun ProfileScreen(
                         state.profile?.fullName ?: "My profile",
                         style = MaterialTheme.typography.headlineMedium
                     )
-                    state.profile?.let { profile ->
-                        Text(
-                            if (profile.username.isBlank()) "Set a username so friends can find you."
-                            else "@${profile.username}"
-                        )
-                    }
                     Text(state.profile?.email.orEmpty())
                 }
 
@@ -69,7 +64,6 @@ fun ProfileScreen(
                     OutlinedButton(
                         onClick = {
                             name = state.profile?.fullName.orEmpty()
-                            username = state.profile?.username.orEmpty()
                             editing = true
                         }
                     ) {
@@ -86,15 +80,16 @@ fun ProfileScreen(
                     OutlinedTextField(
                         value = search,
                         onValueChange = { search = it },
-                        label = { Text("Search username") },
-                        supportingText = { Text("Use the username shown on their profile.") },
+                        label = { Text("Email address") },
+                        supportingText = { Text("Enter the email they use to sign in.") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                         singleLine = true,
                         enabled = !state.searching,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Button(
                         onClick = { viewModel.search(search) },
-                        enabled = search.trim().removePrefix("@").isNotBlank() && !state.busy && !state.searching
+                        enabled = search.isNotBlank() && !state.busy && !state.searching
                     ) {
                         Text(if (state.searching) "Searching…" else "Search")
                     }
@@ -111,6 +106,7 @@ fun ProfileScreen(
                     PersonRow(
                         user = user,
                         action = "Add friend",
+                        subtitle = user.email,
                         enabled = !state.busy &&
                                 state.friends.none { it.uid == user.uid } &&
                                 state.outgoing.none { it.receiverId == user.uid } &&
@@ -131,7 +127,6 @@ fun ProfileScreen(
                     val sender = state.requestUsers[request.senderId]
                     Column {
                         Text(sender?.fullName ?: request.senderId)
-                        Text("@${sender?.username.orEmpty()}")
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
                                 enabled = !state.busy,
@@ -204,19 +199,13 @@ fun ProfileScreen(
                         label = { Text("Full name") },
                         singleLine = true
                     )
-                    OutlinedTextField(
-                        value = username,
-                        onValueChange = { username = it },
-                        label = { Text("Username") },
-                        singleLine = true
-                    )
                 }
             },
             confirmButton = {
                 TextButton(
                     enabled = !state.busy,
                     onClick = {
-                        viewModel.saveProfile(name, username)
+                        viewModel.saveProfile(name)
                         editing = false
                     }
                 ) { Text("Save") }
@@ -235,7 +224,8 @@ private fun PersonRow(
     user: User,
     action: String,
     enabled: Boolean,
-    onAction: () -> Unit
+    onAction: () -> Unit,
+    subtitle: String? = null,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -243,10 +233,7 @@ private fun PersonRow(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(user.fullName.ifBlank { "Pouch user" })
-            Text(
-                "@${user.username}",
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            subtitle?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
         OutlinedButton(
             enabled = enabled,
