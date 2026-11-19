@@ -3,6 +3,14 @@ package com.pouch.domain
 /**
  * Turns OCR text lines into a suggested title + total. Pure Kotlin so it is unit tested.
  * The user always checks and can correct the result before saving (Stage 2 decision).
+ *
+ * ORDER differs per shop
+ * So the parser never relies order
+ * sorted into a [Kind] and the total is chosen by priority:
+ *   1. a real total line (Kokku, Tasuda, Total, "Summa km-ga", ...)
+ *   2. Summa + Käibemaks, when there is no total line
+ *   3. Summa alone
+ *   4. the biggest amount on the receipt (ignoring cash given / change and receipt numbers, codes, phone numbers)
  */
 object ReceiptParser {
 
@@ -11,47 +19,106 @@ object ReceiptParser {
 
     data class Result(val title: String?, val totalCents: Long?)
 
-    // Estonian + English words that usually sit next to the amount to pay.
-    private val TOTAL_WORDS = listOf(
-        "kokku", "summa", "tasuda", "maksta", "total", "amount due", "to pay", "sum", "grand total",
-    )
-    private val IGNORE_WORDS = listOf("km", "käibemaks", "vat", "tax", "subtotal", "vahesumma", "tagasi", "change")
+    private enum class Kind { TOTAL, SUBTOTAL, VAT, PAYMENT, ID, OTHER }
 
-    // 12.50 / 12,50 / 1 234,50 (but not dates like 12.11.2026)
-    private val AMOUNT = Regex("""(?<![\d.,])(\d{1,3}(?:[  ]?\d{3})*|\d+)[.,](\d{2})(?![\d.,])""")
+    // "with VAT" means the line IS the final amount ("Summa km-ga", "Kokku käibemaksuga").
+    private val INCLUDING_VAT = listOf("km-ga", "kmga", "km ga", "käibemaksuga", "incl. vat", "incl vat")
+    // "without VAT" means it's only the subtotal ("Summa km-ta").
+    private val EXCLUDING_VAT = listOf("km-ta", "kmta", "km ta", "käibemaksuta", "excl. vat", "excl vat", "without vat")
+    private val SUBTOTAL_WORDS = listOf("vahesumma", "subtotal", "sub-total")
+    private val VAT = Regex("""käibemaks|\bkm\b|\bvat\b|\btax\b""")
+    // Card / cash lines: the card amount can confirm the total, cash given must never be the total.
+    private val PAYMENT_WORDS = listOf("kaart", "card", "sularaha", "cash", "tagasi", "change", "makstud", "paid")
+    private val TOTAL_WORDS = listOf("kokku", "tasuda", "maksta", "total", "to pay", "amount due")
+    private val SUM = Regex("""summa|\bsum\b""")
+    // Receipt / register / card terminal numbers and codes. Never prices.
+    private val ID_WORDS = Regex(
+        """\b(nr|no|tšekk|tsekk|kviitung|arve|kassa|kassir|kmkr|reg|registrikood|tel|terminal|tehing|kood|rrn|auth|aid|id)\b"""
+    )
+
+    /** Biggest amount we believe can be on a receipt (€99 999.99). Anything bigger is a number like a receipt ID. */
+    private const val MAX_CENTS = 99_999_99L
+    /** "123456,78" has too many digits before the comma to be a price. */
+    private const val MAX_WHOLE_DIGITS = 5
+
+    // 12.50 / 12,50 / 1 234,50
+    // Not matched: dates (12.11.2026), parts of long numbers (2165671236785.17 or "12345 678,50").
+    // Still matched: column layouts like "3 1,29 3,87" (quantity, price, sum).
+    private val AMOUNT = Regex("""(?<![\d.,])(?<!\d{4} )(\d{1,3}(?:[ \u00A0]\d{3})+|\d+)[.,](\d{2})(?![\d.,])""")
 
     fun parse(lines: List<Line>): Result {
         val clean = lines.filter { it.text.isNotBlank() }
         return Result(title = findTitle(clean), totalCents = findTotal(clean))
     }
 
-    fun amountsIn(text: String): List<Long> = AMOUNT.findAll(text).map { m ->
-        val whole = m.groupValues[1].replace(" ", "").replace(" ", "")
-        whole.toLong() * 100 + m.groupValues[2].toLong()
+    fun amountsIn(text: String): List<Long> = AMOUNT.findAll(text).mapNotNull { m ->
+        val whole = m.groupValues[1].replace(" ", "").replace("\u00A0", "")
+        if (whole.length > MAX_WHOLE_DIGITS) return@mapNotNull null
+        val cents = whole.toLong() * 100 + m.groupValues[2].toLong()
+        cents.takeIf { it <= MAX_CENTS }
     }.toList()
 
-    private fun findTotal(lines: List<Line>): Long? {
-        for (line in lines) {
-            val lower = line.text.lowercase()
-            val isTotal = TOTAL_WORDS.any { it in lower } && IGNORE_WORDS.none { it in lower }
-            if (!isTotal) continue
-
-            // Amount on the same line ("KOKKU 12,50") ...
-            amountsIn(line.text).lastOrNull()?.let { return it }
-            // ... or on a separate line at the same height (ML Kit often splits right-aligned prices).
-            lines.filter { it !== line && overlapsVertically(it, line) }
-                .flatMap { amountsIn(it.text) }
-                .maxOrNull()
-                ?.let { return it }
+    /** The order of the checks matters: e.g. "Käibemaks kokku" is VAT, not the total. */
+    private fun kindOf(text: String): Kind {
+        val t = text.lowercase()
+        return when {
+            INCLUDING_VAT.any { it in t } -> Kind.TOTAL
+            EXCLUDING_VAT.any { it in t } -> Kind.SUBTOTAL
+            SUBTOTAL_WORDS.any { it in t } -> Kind.SUBTOTAL
+            VAT.containsMatchIn(t) -> Kind.VAT
+            PAYMENT_WORDS.any { it in t } -> Kind.PAYMENT
+            TOTAL_WORDS.any { it in t } -> Kind.TOTAL
+            SUM.containsMatchIn(t) -> Kind.SUBTOTAL
+            ID_WORDS.containsMatchIn(t) -> Kind.ID
+            else -> Kind.OTHER
         }
-        // Fallback: the biggest amount on the receipt is usually the total.
-        return lines.flatMap { amountsIn(it.text) }.maxOrNull()
+    }
+
+    private fun findTotal(lines: List<Line>): Long? {
+        val kinds = lines.associateWith { kindOf(it.text) }
+        fun amountsOf(kind: Kind): List<Long> =
+            lines.filter { kinds[it] == kind }.mapNotNull { amountFor(it, lines) }
+
+        // 1. Explicit total line. If there are several, the final total is the biggest.
+        amountsOf(Kind.TOTAL).maxOrNull()?.let { return it }
+
+        // 2./3. Summa (+ Käibemaks).
+        val subtotal = amountsOf(Kind.SUBTOTAL).maxOrNull()
+        if (subtotal != null) {
+            val vat = amountsOf(Kind.VAT)
+            if (vat.isEmpty()) return subtotal
+            val withVat = subtotal + vat.sum()
+            // Some shops print "Summa" already WITH VAT. The card payment tells us which one is right.
+            val paid = amountsOf(Kind.PAYMENT).toSet()
+            return when {
+                withVat in paid -> withVat
+                subtotal in paid -> subtotal
+                else -> withVat
+            }
+        }
+
+        // 4. Fallback: biggest ordinary amount (not cash given, change or VAT).
+        return lines.filter { kinds[it] == Kind.OTHER }.flatMap { amountsIn(it.text) }.maxOrNull()
+    }
+
+    /** Amount on the same line ("KOKKU 12,50"), or on a line at the same height
+     *  (ML Kit often reads right-aligned prices as a separate line). */
+    private fun amountFor(line: Line, lines: List<Line>): Long? {
+        amountsIn(line.text).lastOrNull()?.let { return it }
+        return lines.filter { it !== line && overlapsVertically(it, line) }
+            .flatMap { amountsIn(it.text) }
+            .maxOrNull()
     }
 
     private fun findTitle(lines: List<Line>): String? =
         lines.take(5)
             .map { it.text.trim() }
-            .firstOrNull { text -> text.count { it.isLetter() } >= 3 && amountsIn(text).isEmpty() }
+            .firstOrNull { text ->
+                val letters = text.count { it.isLetter() }
+                // A store name: some letters, no price, and not mostly digits (e.g. "Tšekk 2165671236")
+                letters >= 3 && amountsIn(text).isEmpty() && text.count { it.isDigit() } < letters &&
+                    !ID_WORDS.containsMatchIn(text.lowercase())
+            }
             ?.take(60)
 
     private fun overlapsVertically(a: Line, b: Line): Boolean {
