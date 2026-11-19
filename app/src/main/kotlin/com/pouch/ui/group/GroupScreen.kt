@@ -65,7 +65,7 @@ import com.pouch.ui.common.pouchViewModel
 import com.pouch.ui.theme.PouchColors
 import java.text.DateFormat
 import java.util.Date
-
+import java.util.UUID
 
 private val TABS = listOf("Receipts", "Balances", "Members")
 
@@ -85,7 +85,6 @@ fun GroupScreen(
     val snackbar = remember { SnackbarHostState() }
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var showAddMember by remember { mutableStateOf(false) }
-    var showFriends by remember { mutableStateOf(false) }
     var receiptToDelete by remember { mutableStateOf<Receipt?>(null) }
     var receiptToEditId by rememberSaveable { mutableStateOf(initialReceiptId) }
     var confirmDeleteGroup by remember { mutableStateOf(false) }
@@ -116,7 +115,10 @@ fun GroupScreen(
                     )
 
                     2 -> if (details?.canManage == true) ExtendedFloatingActionButton(
-                        onClick = { showAddMember = true },
+                        onClick = {
+                            showAddMember = true
+                            if (details.group.createdByUserId.isNotEmpty()) viewModel.loadFriends()
+                        },
                         icon = { Icon(Icons.Default.Add, null) },
                         text = { Text("Add member") },
                     )
@@ -148,12 +150,6 @@ fun GroupScreen(
                             details.group.members,
                             ownerId = details.group.members.firstOrNull()?.id,
                             onRemove = if (details.canManage) viewModel::removeMember else null,
-                            onShare = if (details.canManage && details.group.createdByUserId.isNotEmpty()) {
-                                {
-                                    showFriends = true
-                                    viewModel.loadFriends()
-                                }
-                            } else null,
                         )
                     }
                 }
@@ -161,21 +157,15 @@ fun GroupScreen(
         }
     }
 
-    if (showFriends && details?.canManage == true) {
-        ShareGroupDialog(
-            state = friends,
+    if (showAddMember && details?.canManage == true) {
+        AddMemberDialog(
+            friendsState = if (details.group.createdByUserId.isNotEmpty()) friends else null,
             memberUserIds = details.group.memberUserIds,
             sharing = sharing,
-            onDismiss = { showFriends = false },
-            onRetry = viewModel::loadFriends,
-            onAdd = { friend -> viewModel.addFriend(friend) { showFriends = false } },
-        )
-    }
-
-    if (showAddMember) {
-        AddMemberDialog(
             onDismiss = { showAddMember = false },
-            onAdd = { name ->
+            onRetry = viewModel::loadFriends,
+            onAddFriend = { friend -> viewModel.addFriend(friend) { showAddMember = false } },
+            onAddName = { name ->
                 val error = viewModel.addMember(name)
                 if (error == null) showAddMember = false
                 error
@@ -321,12 +311,8 @@ private fun MembersTab(
     members: List<Member>,
     ownerId: String?,
     onRemove: ((Member) -> Unit)?,
-    onShare: (() -> Unit)?,
 ) {
     LazyColumn(contentPadding = listPadding, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (onShare != null) {
-            item { TextButton(onClick = onShare) { Text("Share with a friend") } }
-        }
         items(members, key = { it.id }) { member ->
             ListCard {
                 Text(member.name, modifier = Modifier.weight(1f))
@@ -340,74 +326,83 @@ private fun MembersTab(
     }
 }
 
-/** Lets the group owner share the group with one existing friend. */
+/**
+ * Lets the group owner add a member: pick one of their friends (friends already in the group are
+ * greyed out) or type a name for a participant without an account.
+ * [friendsState] is null for groups that cannot be shared (no signed-in owner).
+ */
 @Composable
-private fun ShareGroupDialog(
-    state: UiState<List<User>>,
+private fun AddMemberDialog(
+    friendsState: UiState<List<User>>?,
     memberUserIds: List<String>,
     sharing: Boolean,
     onDismiss: () -> Unit,
     onRetry: () -> Unit,
-    onAdd: (User) -> Unit,
+    onAddFriend: (User) -> Unit,
+    onAddName: (String) -> String?,
 ) {
+    var name by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
     var selectedUid by rememberSaveable { mutableStateOf<String?>(null) }
-    val available = (state as? UiState.Success)?.data.orEmpty()
-        .filter { it.uid.isNotBlank() && it.uid !in memberUserIds }
-    val selectedFriend = available.firstOrNull { it.uid == selectedUid }
+    val friends = (friendsState as? UiState.Success)?.data.orEmpty().filter { it.uid.isNotBlank() }
+    val selectedFriend = friends.firstOrNull { it.uid == selectedUid && it.uid !in memberUserIds }
+
     AlertDialog(
         onDismissRequest = { if (!sharing) onDismiss() },
-        title = { Text("Share with a friend") },
+        title = { Text("Add member") },
         text = {
-            when (state) {
-                UiState.Loading -> CircularProgressIndicator()
-                UiState.Empty -> Text("Add a friend in Profile first.")
-                is UiState.Error -> Column {
-                    Text(state.message)
-                    TextButton(onClick = onRetry) { Text("Try again") }
-                }
-                is UiState.Success -> {
-                    if (available.isEmpty()) {
-                        Text("All your friends are already in this group.")
-                    } else {
-                        LazyColumn(Modifier.heightIn(max = 240.dp)) {
-                            item { Text("Your friend will be able to see and edit this group's receipts.") }
-                            items(available, key = { it.uid }) { friend ->
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (friendsState != null) {
+                    Text("Friends", style = MaterialTheme.typography.titleSmall)
+                    when (friendsState) {
+                        UiState.Loading -> CircularProgressIndicator()
+                        UiState.Empty -> Text("Add a friend in Profile first.")
+                        is UiState.Error -> Column {
+                            Text(friendsState.message)
+                            TextButton(onClick = onRetry) { Text("Try again") }
+                        }
+                        is UiState.Success -> LazyColumn(Modifier.heightIn(max = 240.dp)) {
+                            items(friends, key = { it.uid }) { friend ->
+                                val inGroup = friend.uid in memberUserIds
+                                val label = friend.fullName.ifBlank { friend.email.ifBlank { "Pouch user" } }
                                 FilterChip(
-                                    selected = friend.uid == selectedUid,
-                                    onClick = { selectedUid = friend.uid },
-                                    enabled = !sharing,
-                                    label = { Text(friend.fullName.ifBlank { friend.email.ifBlank { "Pouch user" } }) },
+                                    selected = friend.uid == selectedUid && !inGroup,
+                                    onClick = {
+                                        selectedUid = if (selectedUid == friend.uid) null else friend.uid
+                                        name = ""
+                                        error = null
+                                    },
+                                    enabled = !inGroup && !sharing,
+                                    label = { Text(if (inGroup) "$label · in group" else label) },
                                 )
                             }
                         }
                     }
+                    Text(
+                        "Friends can see and edit this group's receipts. Or add someone without an account:",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
+                ValidatedTextField(
+                    value = name,
+                    onValueChange = { name = it; error = null; if (it.isNotEmpty()) selectedUid = null },
+                    label = "Name",
+                    error = error,
+                )
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { selectedFriend?.let(onAdd) },
-                enabled = selectedFriend != null && !sharing,
+                onClick = {
+                    val friend = selectedFriend
+                    if (friend != null) onAddFriend(friend) else error = onAddName(name)
+                },
+                enabled = !sharing,
             ) {
-                Text(if (sharing) "Sharing…" else "Share")
+                Text(if (sharing) "Adding…" else "Add")
             }
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !sharing) { Text("Cancel") } },
-    )
-}
-
-@Composable
-private fun AddMemberDialog(onDismiss: () -> Unit, onAdd: (String) -> String?) {
-    var name by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Add member") },
-        text = {
-            ValidatedTextField(value = name, onValueChange = { name = it; error = null }, label = "Name", error = error)
-        },
-        confirmButton = { TextButton(onClick = { error = onAdd(name) }) { Text("Add") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 
@@ -468,11 +463,33 @@ private fun EditReceiptDialog(
         mutableStateOf(receipt.splitMode)
     }
     var receiptItems by remember(receipt.id) {
-        mutableStateOf(receipt.items)
+        mutableStateOf(receipt.items.toList())
     }
 
     var error by remember(receipt.id) {
         mutableStateOf<String?>(null)
+    }
+
+    fun recalculateItems() {
+        val newTotal = SplitCalculator.itemTotal(receiptItems)
+
+        amount = centsText(newTotal)
+
+        val validMemberIds = members.map { it.id }.toSet()
+
+        val validItems = receiptItems.filter { item ->
+            item.assignedMemberIds.isNotEmpty() &&
+                    item.assignedMemberIds.all { it in validMemberIds }
+        }
+
+        shares = SplitCalculator.itemShares(validItems, members)
+
+        if (payments.size <= 1) {
+            val payerId = payments.keys.firstOrNull()
+                ?: receipt.paidByMemberId
+
+            payments = mapOf(payerId to newTotal)
+        }
     }
 
     val total = parseCents(amount) ?: 0L
@@ -504,15 +521,22 @@ private fun EditReceiptDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                ValidatedTextField(
-                    value = title,
-                    onValueChange = {
-                        title = it
+                if (splitMode == SplitMode.BY_ITEM) {
+                    Text(
+                        text = "Total (€): ${centsText(total)}",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                } else {
+                    ValidatedTextField(
+                        value = amount,
+                        onValueChange = {
+                            amount = it
+                            error = null
+                        },
+                        label = "Amount (€)",
                         error = null
-                    },
-                    label = "Expense name",
-                    error = null
-                )
+                    )
+                }
 
                 ValidatedTextField(
                     value = amount,
@@ -538,6 +562,11 @@ private fun EditReceiptDialog(
                         }
 
                         splitMode = mode
+
+                        if (mode == SplitMode.BY_ITEM) {
+                            recalculateItems()
+                        }
+
                         error = null
                     },
                     onPaymentsChange = {
@@ -547,10 +576,48 @@ private fun EditReceiptDialog(
                     onSharesChange = {
                         shares = it
                         splitMode = SplitMode.CUSTOM
+                        amount = centsText(it.values.sum())
+                        error = null
+                    },
+
+                    items = receiptItems,
+
+                    onSaveItem = { id, name, price, memberIds ->
+
+                        val item = ReceiptItem(
+                            id = id ?: UUID.randomUUID().toString(),
+                            name = name,
+                            totalCents = price,
+                            assignedMemberIds = memberIds
+                        )
+
+                        receiptItems = if (id == null) {
+                            // Add a new item
+                            receiptItems + item
+                        } else {
+                            // Update the existing item
+                            receiptItems.map { existing ->
+                                if (existing.id == id) {
+                                    item
+                                } else {
+                                    existing
+                                }
+                            }
+                        }
+
+                        recalculateItems()
+                        error = null
+                    },
+
+                    onRemoveItem = { id ->
+                        receiptItems = receiptItems.filterNot {
+                            it.id == id
+                        }
+
+                        recalculateItems()
                         error = null
                     }
                 )
-
                 if (error != null) {
                     Text(
                         text = error.orEmpty(),
@@ -599,8 +666,26 @@ private fun EditReceiptDialog(
                         !valid(payments) ->
                             error = "Payments must equal the total"
 
+
                         !valid(displayedShares) ->
                             error = "Shares must equal the total"
+
+                        splitMode == SplitMode.BY_ITEM &&
+                                (
+                                        receiptItems.isEmpty() ||
+                                                receiptItems.any { item ->
+                                                    item.name.isBlank() ||
+                                                            item.totalCents <= 0L ||
+                                                            item.assignedMemberIds.isEmpty() ||
+                                                            item.assignedMemberIds.distinct().size !=
+                                                            item.assignedMemberIds.size ||
+                                                            item.assignedMemberIds.any { id ->
+                                                                id !in memberIds
+                                                            }
+                                                } ||
+                                                SplitCalculator.itemTotal(receiptItems) != cents
+                                        ) ->
+                            error = "Check all items before saving"
 
                         else -> {
                             onSave(
