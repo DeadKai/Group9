@@ -85,7 +85,7 @@ class GroupViewModel(
         viewModelScope.launch {
             try {
                 repository.addFriend(groupId, friend)
-                success.show("Group shared", "Your friend can now see this group")
+                success.show("Member added", "${friend.fullName.ifBlank { "Your friend" }} joined the group")
                 onAdded()
             } catch (failure: CancellationException) {
                 throw failure
