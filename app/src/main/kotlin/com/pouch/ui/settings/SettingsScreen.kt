@@ -1,6 +1,5 @@
 package com.pouch.ui.settings
 
-import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,7 +20,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -31,7 +29,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -65,11 +62,6 @@ fun SettingsScreen(
     var showSignOutDialog by rememberSaveable { mutableStateOf(false) }
     var showHelp by rememberSaveable { mutableStateOf(false) }
 
-    // Notification switch is stored on the device. (It only saves the choice for now;
-    // actual push/email alerts would need to read this value later.)
-    val prefs = remember { context.getSharedPreferences("pouch_settings", Context.MODE_PRIVATE) }
-    var notificationsOn by rememberSaveable { mutableStateOf(prefs.getBoolean("notifications", true)) }
-
     val versionName = remember {
         try {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
@@ -93,22 +85,6 @@ fun SettingsScreen(
                 subtitle = "View and update your details",
                 onClick = onProfile,
                 trailing = { Chevron() },
-            )
-
-            SectionLabel("Preferences")
-            SettingsCard(
-                icon = Icons.Outlined.Notifications,
-                title = "Notifications",
-                subtitle = "Push, email alerts",
-                trailing = {
-                    Switch(
-                        checked = notificationsOn,
-                        onCheckedChange = {
-                            notificationsOn = it
-                            prefs.edit().putBoolean("notifications", it).apply()
-                        },
-                    )
-                },
             )
 
             SectionLabel("Support")
