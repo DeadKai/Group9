@@ -1,18 +1,20 @@
 package com.pouch.domain
 
 import com.google.firebase.firestore.Exclude
+import com.google.firebase.firestore.IgnoreExtraProperties
 import com.google.firebase.firestore.PropertyName
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 // money is always whole cents (Long) to avoid rounding errors
 
+/** Account profile used for friend search and group membership. */
 @Serializable
+@IgnoreExtraProperties
 data class User(
     val uid: String = "",
     val fullName: String = "",
     val email: String = "",
-    val username: String = "",
     val photoUrl: String = ""
 )
 

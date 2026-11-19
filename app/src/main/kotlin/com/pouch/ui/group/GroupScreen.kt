@@ -374,7 +374,7 @@ private fun ShareGroupDialog(
                                     selected = friend.uid == selectedUid,
                                     onClick = { selectedUid = friend.uid },
                                     enabled = !sharing,
-                                    label = { Text(friend.fullName.ifBlank { friend.username.ifBlank { friend.email } }) },
+                                    label = { Text(friend.fullName.ifBlank { friend.email.ifBlank { "Pouch user" } }) },
                                 )
                             }
                         }

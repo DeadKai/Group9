@@ -98,11 +98,8 @@ class ProfileViewModel(
         }
     }
 
-    fun saveProfile(name: String, username: String) = perform {
+    fun saveProfile(name: String) = perform {
         val current = state.value.profile ?: error("Profile not loaded")
-        if (current.username != username.trim().lowercase()) {
-            users.setUsername(username)
-        }
         if (current.fullName != name.trim()) {
             users.updateName(name)
         }
@@ -114,11 +111,11 @@ class ProfileViewModel(
         change { it.copy(results = emptyList(), searching = true, searchMessage = null, searchFailed = false) }
         viewModelScope.launch {
             try {
-                val results = users.searchByUsername(query)
+                val results = listOfNotNull(users.searchByEmail(query))
                 change {
                     it.copy(
                         results = results,
-                        searchMessage = if (results.isEmpty()) "No users found. Check their profile username." else null,
+                        searchMessage = if (results.isEmpty()) "No other user found with this email." else null,
                     )
                 }
             } catch (e: CancellationException) {
