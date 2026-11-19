@@ -14,11 +14,11 @@ import com.pouch.domain.SplitCalculator
 import com.pouch.domain.User
 import com.pouch.ui.common.SuccessController
 import com.pouch.ui.common.UiState
+import com.pouch.ui.common.showErrorAndRetry
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -49,7 +49,7 @@ class GroupViewModel(
                 UiState.Success(GroupDetails(group, balances, SplitCalculator.settlements(balances), repository.canManage(group)))
             }
         }
-        .catch { emit(UiState.Error("Couldn't load this group")) }
+        .showErrorAndRetry("Couldn't load this group")
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UiState.Loading)
 
     /** Error / warning text for the snackbar (null = nothing to show). Successes use [success]. */

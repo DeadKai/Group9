@@ -3,6 +3,7 @@ package com.pouch.data
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.pouch.domain.FriendRequest
+import com.pouch.domain.FriendRequestStatus
 import com.pouch.domain.User
 import kotlinx.coroutines.tasks.await
 
@@ -61,12 +62,12 @@ class FriendsRepository(
     suspend fun incomingRequests(): List<FriendRequest> =
         requests.whereEqualTo("receiverId", uid())
             .get().await().toObjects(FriendRequest::class.java)
-            .filter { it.status == "pending" }
+            .filter { it.status == FriendRequestStatus.PENDING }
 
     suspend fun outgoingRequests(): List<FriendRequest> =
         requests.whereEqualTo("senderId", uid())
             .get().await().toObjects(FriendRequest::class.java)
-            .filter { it.status == "pending" }
+            .filter { it.status == FriendRequestStatus.PENDING }
 
     suspend fun acceptRequest(request: FriendRequest) {
         val me = uid()
@@ -84,7 +85,7 @@ class FriendsRepository(
             require(existing.exists() &&
                     existing.getString("senderId") == request.senderId &&
                     existing.getString("receiverId") == me &&
-                    existing.getString("status") == "pending"
+                    existing.getString("status") == FriendRequestStatus.PENDING.value
             ) { "Request no longer available" }
 
             require(!friendship.exists()) { "Already friends" }

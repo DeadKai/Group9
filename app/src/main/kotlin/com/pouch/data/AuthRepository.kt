@@ -2,7 +2,6 @@ package com.pouch.data
 
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
-import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.userProfileChangeRequest
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -31,12 +30,6 @@ class AuthRepository(
     suspend fun signIn(email: String, password: String): FirebaseUser {
         return auth.signInWithEmailAndPassword(email.trim(), password).await().user
             ?: error("Sign-in failed")
-    }
-
-    suspend fun signInWithGoogle(idToken: String): FirebaseUser {
-        val credential = GoogleAuthProvider.getCredential(idToken, null)
-        return auth.signInWithCredential(credential).await().user
-            ?: error("Google sign-in failed")
     }
 
     fun signOut() = auth.signOut()

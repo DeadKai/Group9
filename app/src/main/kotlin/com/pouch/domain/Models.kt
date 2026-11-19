@@ -1,6 +1,8 @@
 package com.pouch.domain
 
 import com.google.firebase.firestore.Exclude
+import com.google.firebase.firestore.PropertyName
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 // money is always whole cents (Long) to avoid rounding errors
@@ -14,14 +16,40 @@ data class User(
     val photoUrl: String = ""
 )
 
+/**
+ * Lifecycle of a friend request. @PropertyName keeps the lowercase values
+ * already stored in Firestore (and checked by security rules).
+ */
+enum class FriendRequestStatus(val value: String) {
+    @PropertyName("pending") PENDING("pending"),
+    @PropertyName("accepted") ACCEPTED("accepted"),
+    @PropertyName("rejected") REJECTED("rejected"),
+}
+
 /** Stored friendship invitation between two Firebase accounts. */
 data class FriendRequest(
     val id: String = "",
     val senderId: String = "",
     val receiverId: String = "",
     val createdAt: Long = 0L,
-    val status: String = "pending",
+    val status: FriendRequestStatus = FriendRequestStatus.PENDING,
 )
+
+/**
+ * Icons a group can have. The emoji is the stored value (Firestore and the
+ * local JSON file), so existing groups keep loading.
+ */
+@Serializable
+enum class GroupIcon(val emoji: String) {
+    @SerialName("🏠") @PropertyName("🏠") HOME("🏠"),
+    @SerialName("✈️") @PropertyName("✈️") TRAVEL("✈️"),
+    @SerialName("🍕") @PropertyName("🍕") FOOD("🍕"),
+    @SerialName("🛒") @PropertyName("🛒") GROCERIES("🛒"),
+    @SerialName("🎉") @PropertyName("🎉") PARTY("🎉"),
+    @SerialName("🚗") @PropertyName("🚗") CAR("🚗"),
+    @SerialName("🏕️") @PropertyName("🏕️") CAMPING("🏕️"),
+    @SerialName("💼") @PropertyName("💼") WORK("💼"),
+}
 
 @Serializable
 data class Member(
@@ -39,17 +67,7 @@ data class ReceiptItem(
     val assignedMemberIds: List<String> = emptyList(),
 )
 
-@Serializable
-data class ReceiptPayer(
-    val memberId: String = "",
-    val amountPaidCents: Long = 0L,
-)
-
-@Serializable
-data class ReceiptSplit(
-    val memberId: String = "",
-    val amountOwedCents: Long = 0L,
-)
+/** How much one member paid for, or owes on, a receipt. */
 @Serializable
 data class MemberAmount(
     val memberId: String = "",
@@ -68,25 +86,24 @@ data class Receipt(
     val groupId: String = "",
     val title: String = "",
     val totalCents: Long = 0L,
+    /** First member in [payments]; kept for display and for receipts saved before [payments] existed. */
     val paidByMemberId: String = "",
     val createdAt: Long = 0L,
 
-    // Payments and shares
+    // Who paid and who owes. Each list adds up to totalCents. Empty = an older receipt,
+    // see SplitCalculator.effectivePayments / effectiveShares.
     val payments: List<MemberAmount> = emptyList(),
     val shares: List<MemberAmount> = emptyList(),
 
     // Split configuration
     val splitMode: SplitMode = SplitMode.EQUAL,
-    val splitMethod: String = "equal",
 
     // Dates
     val modifiedAt: Long = createdAt,
     val receiptDate: Long? = null,
 
-    // Receipt details
+    // Line items for per-item splitting (not used yet)
     val items: List<ReceiptItem> = emptyList(),
-    val payers: List<ReceiptPayer> = emptyList(),
-    val splits: List<ReceiptSplit> = emptyList()
 )
 
 @Serializable
@@ -94,7 +111,7 @@ data class Group(
     val id: String = "",
     val createdByUserId: String = "",
     val name: String = "",
-    val icon: String = "",
+    val icon: GroupIcon = GroupIcon.HOME,
     val createdAt: Long = 0L,
     val modifiedAt: Long = createdAt,
     val members: List<Member> = emptyList(),

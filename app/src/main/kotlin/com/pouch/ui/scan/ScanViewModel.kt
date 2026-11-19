@@ -14,12 +14,14 @@ import com.pouch.ui.common.SuccessController
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Job
+import kotlin.time.Duration.Companion.milliseconds
 
 /** Which part of the Scan screen is visible. */
 enum class ScanStep { CHOOSE_SOURCE, READING, EDIT }
@@ -85,10 +87,14 @@ class ScanViewModel(
 
     init {
         viewModelScope.launch {
-            groupsRepo.groups.catch { failure ->
+            groupsRepo.groups.retryWhen { failure, attempt ->
+                if (failure is CancellationException) return@retryWhen false
                 _state.update {
                     it.copy(groupsLoaded = true, groupsLoadError = failure.message ?: "Could not load groups")
                 }
+                // Keep listening instead of stopping at the first error.
+                delay(minOf(30_000L, 1_000L shl attempt.coerceAtMost(5).toInt()).milliseconds)
+                true
             }.collect { groups ->
                 _state.update { s ->
                     // Only one group? Pick it automatically.
@@ -96,6 +102,7 @@ class ScanViewModel(
                     val group = groups.firstOrNull { it.id == selected }
                     s.copy(
                         groupsLoaded = true,
+                        groupsLoadError = null,
                         groups = groups,
                         selectedGroupId = selected,
                         paidByMemberId = s.paidByMemberId?.takeIf { id -> group?.members?.any { it.id == id } == true }
