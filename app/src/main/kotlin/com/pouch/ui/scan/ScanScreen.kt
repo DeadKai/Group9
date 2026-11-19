@@ -49,6 +49,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pouch.domain.SplitCalculator
 import com.pouch.domain.SplitMode
+import com.pouch.ui.common.centsText
 import com.pouch.ui.common.BackTopBar
 import com.pouch.ui.common.EmptyView
 import com.pouch.ui.common.LoadingButton
@@ -221,9 +222,19 @@ private fun EditReceipt(state: ScanUiState, viewModel: ScanViewModel, modifier: 
             label = "What was it for?", error = state.titleError,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
         )
-        if (state.splitMode == SplitMode.CUSTOM || state.splitMode == SplitMode.BY_ITEM) {
+
+        if (
+            state.splitMode == SplitMode.CUSTOM ||
+            state.splitMode == SplitMode.BY_ITEM
+        ) {
+            val totalText = if (state.splitMode == SplitMode.BY_ITEM) {
+                centsText(SplitCalculator.itemTotal(state.items))
+            } else {
+                state.amount.ifBlank { "0.00" }
+            }
+
             Text(
-                text = "Total (€): ${state.amount.ifBlank { "0.00" }}",
+                text = "Total (€): $totalText",
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(vertical = 12.dp)
             )
@@ -288,11 +299,8 @@ private fun EditReceipt(state: ScanUiState, viewModel: ScanViewModel, modifier: 
                 onPaymentsChange = viewModel::onPaymentsChange,
                 onSharesChange = viewModel::onSharesChange,
                 items = state.items,
-                onAddItem = viewModel::addItem,
-                onRemoveItem = viewModel::removeItem,
-                onItemNameChange = viewModel::updateItemName,
-                onItemPriceChange = viewModel::updateItemPrice,
-                onItemMembersChange = viewModel::updateItemMembers
+                onSaveItem = viewModel::saveItem,
+                onRemoveItem = viewModel::removeItem
 
             )
 
