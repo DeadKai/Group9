@@ -61,7 +61,8 @@ data class MemberAmount(
 @Serializable
 enum class SplitMode {
     EQUAL,
-    CUSTOM
+    CUSTOM,
+    BY_ITEM
 }
 
 @Serializable

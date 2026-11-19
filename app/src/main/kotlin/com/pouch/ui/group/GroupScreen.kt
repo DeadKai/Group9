@@ -51,6 +51,7 @@ import com.pouch.domain.formatMoney
 import com.pouch.domain.MemberAmount
 import com.pouch.domain.SplitMode
 import com.pouch.domain.SplitCalculator
+import com.pouch.domain.ReceiptItem
 import com.pouch.ui.common.BackTopBar
 import com.pouch.ui.common.ReceiptSplitEditor
 import com.pouch.ui.common.parseCents
@@ -64,6 +65,7 @@ import com.pouch.ui.common.pouchViewModel
 import com.pouch.ui.theme.PouchColors
 import java.text.DateFormat
 import java.util.Date
+
 
 private val TABS = listOf("Receipts", "Balances", "Members")
 
@@ -223,17 +225,20 @@ fun GroupScreen(
                 onDismiss = {
                     receiptToEditId = null
                 },
-                onSave = { title, cents, payments, shares, mode ->
+
+                onSave = { title, cents, payments, shares, mode, items ->
                     viewModel.updateReceipt(
                         receipt = receipt,
                         title = title,
                         amountCents = cents,
                         payments = payments,
                         shares = shares,
-                        splitMode = mode
+                        splitMode = mode,
+                        items = items,
+                        onSaved = {
+                            receiptToEditId = null
+                        }
                     )
-
-                    receiptToEditId = null
                 }
             )
         }
@@ -433,7 +438,8 @@ private fun EditReceiptDialog(
         Long,
         List<MemberAmount>,
         List<MemberAmount>,
-        SplitMode
+        SplitMode,
+        List<ReceiptItem>
     ) -> Unit
 ) {
     var title by remember(receipt.id) {
@@ -460,6 +466,9 @@ private fun EditReceiptDialog(
 
     var splitMode by remember(receipt.id) {
         mutableStateOf(receipt.splitMode)
+    }
+    var receiptItems by remember(receipt.id) {
+        mutableStateOf(receipt.items)
     }
 
     var error by remember(receipt.id) {
@@ -603,7 +612,12 @@ private fun EditReceiptDialog(
                                 displayedShares.map { (id, value) ->
                                     MemberAmount(id, value)
                                 },
-                                splitMode
+                                splitMode,
+                                if (splitMode == SplitMode.BY_ITEM) {
+                                    receiptItems
+                                } else {
+                                    emptyList()
+                                }
                             )
                         }
                     }

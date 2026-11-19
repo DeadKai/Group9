@@ -8,6 +8,7 @@ import com.pouch.domain.MemberAmount
 import com.pouch.domain.SplitMode
 import com.pouch.domain.SplitCalculator
 import com.pouch.domain.User
+import com.pouch.domain.ReceiptItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.awaitClose
@@ -242,11 +243,27 @@ class GroupRepository(
             groupsCollection.document(groupId).delete().await()
         }
     }
-    suspend fun updateReceipt(groupId: String, receiptId: String, title: String,totalCents: Long, payments: List<MemberAmount>, shares: List<MemberAmount>, splitMode: SplitMode) = updateGroup(groupId) { group ->
 
-        require(title.isNotBlank() && title.length <= 60)
-        require(totalCents > 0)
-        require(group.receipts.any { it.id == receiptId })
+    suspend fun updateReceipt(
+        groupId: String,
+        receiptId: String,
+        title: String,
+        totalCents: Long,
+        payments: List<MemberAmount>,
+        shares: List<MemberAmount>,
+        splitMode: SplitMode,
+        items: List<ReceiptItem> = emptyList()
+    ) = updateGroup(groupId) { group ->
+
+        require(title.isNotBlank() && title.length <= 60) {
+            "Enter a valid receipt title"
+        }
+        require(totalCents > 0) {
+            "Receipt total must be greater than zero"
+        }
+        require(group.receipts.any { it.id == receiptId }) {
+            "Receipt not found"
+        }
 
         val memberIds = group.members.map { it.id }.toSet()
 
@@ -256,12 +273,42 @@ class GroupRepository(
                         it.memberId in memberIds &&
                                 it.amountCents >= 0
                     } &&
-                    entries.map { it.memberId }.distinct().size ==
-                    entries.size &&
+                    entries.map { it.memberId }.distinct().size == entries.size &&
                     entries.sumOf { it.amountCents } == totalCents
 
-        require(valid(payments))
-        require(valid(shares))
+        require(valid(payments)) {
+            "Payments must add up to the receipt total"
+        }
+
+        require(valid(shares)) {
+            "Shares must add up to the receipt total"
+        }
+
+        if (splitMode == SplitMode.BY_ITEM) {
+            require(items.isNotEmpty()) {
+                "Add at least one item"
+            }
+
+            require(items.all {
+                it.name.isNotBlank() &&
+                        it.totalCents >= 0 &&
+                        it.assignedMemberIds.isNotEmpty() &&
+                        it.assignedMemberIds.all { id -> id in memberIds }
+            }) {
+                "Each item needs a name and assigned members"
+            }
+
+            require(SplitCalculator.itemTotal(items) == totalCents) {
+                "Item prices must add up to the receipt total"
+            }
+
+            val expectedShares = SplitCalculator.itemShares(items, group.members)
+            require(expectedShares.all { (id, amount) ->
+                shares.find { it.memberId == id }?.amountCents.orZero() == amount
+            }) {
+                "Item shares do not match the receipt total"
+            }
+        }
 
         group.copy(
             receipts = group.receipts.map { receipt ->
@@ -272,13 +319,15 @@ class GroupRepository(
                         paidByMemberId = payments.first {
                             it.amountCents > 0
                         }.memberId,
-                        payments = payments.filter {
-                            it.amountCents > 0
+                        payments = payments.filter { it.amountCents > 0 },
+                        shares = shares.filter { it.amountCents > 0 },
+                        splitMode = splitMode,
+                        items = if (splitMode == SplitMode.BY_ITEM) {
+                            items
+                        } else {
+                            emptyList()
                         },
-                        shares = shares.filter {
-                            it.amountCents > 0
-                        },
-                        splitMode = splitMode
+                        modifiedAt = System.currentTimeMillis()
                     )
                 } else {
                     receipt
@@ -286,6 +335,8 @@ class GroupRepository(
             }
         )
     }
+
+    private fun Long?.orZero(): Long = this ?: 0L
 
     private fun newId() = UUID.randomUUID().toString()
 

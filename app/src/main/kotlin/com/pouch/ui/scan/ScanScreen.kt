@@ -16,14 +16,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -49,17 +47,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.pouch.domain.formatMoney
-import com.pouch.ui.common.BackTopBar
-import com.pouch.ui.common.ReceiptSplitEditor
-import com.pouch.ui.common.parseCents
 import com.pouch.domain.SplitCalculator
 import com.pouch.domain.SplitMode
+import com.pouch.ui.common.BackTopBar
 import com.pouch.ui.common.EmptyView
 import com.pouch.ui.common.LoadingButton
 import com.pouch.ui.common.LoadingScreen
 import com.pouch.ui.common.LoadingView
+import com.pouch.ui.common.ReceiptSplitEditor
 import com.pouch.ui.common.ValidatedTextField
+import com.pouch.ui.common.parseCents
 import com.pouch.ui.common.pouchViewModel
 import kotlinx.coroutines.launch
 import java.io.File
@@ -176,9 +173,13 @@ private fun ChooseSource(
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(32.dp))
-        Button(onClick = onCamera, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("Take photo") }
+        Button(onClick = onCamera, modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp)) { Text("Take photo") }
         Spacer(Modifier.height(12.dp))
-        OutlinedButton(onClick = onGallery, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("Choose from gallery") }
+        OutlinedButton(onClick = onGallery, modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp)) { Text("Choose from gallery") }
         Spacer(Modifier.height(12.dp))
         TextButton(onClick = onManual) { Text("Enter manually") }
     }
@@ -220,12 +221,24 @@ private fun EditReceipt(state: ScanUiState, viewModel: ScanViewModel, modifier: 
             label = "What was it for?", error = state.titleError,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
         )
-        ValidatedTextField(
-            value = state.amount, onValueChange = viewModel::onAmountChange,
-            label = "Total (€)", error = state.amountError,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
-        )
-
+        if (state.splitMode == SplitMode.CUSTOM || state.splitMode == SplitMode.BY_ITEM) {
+            Text(
+                text = "Total (€): ${state.amount.ifBlank { "0.00" }}",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(vertical = 12.dp)
+            )
+        } else {
+            ValidatedTextField(
+                value = state.amount,
+                onValueChange = viewModel::onAmountChange,
+                label = "Total (€)",
+                error = state.amountError,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Decimal,
+                    imeAction = ImeAction.Done
+                )
+            )
+        }
         state.selectedGroup?.let { group ->
             Spacer(Modifier.height(16.dp))
 
@@ -273,7 +286,14 @@ private fun EditReceipt(state: ScanUiState, viewModel: ScanViewModel, modifier: 
                 splitMode = state.splitMode,
                 onSplitModeChange = viewModel::onSplitModeChange,
                 onPaymentsChange = viewModel::onPaymentsChange,
-                onSharesChange = viewModel::onSharesChange
+                onSharesChange = viewModel::onSharesChange,
+                items = state.items,
+                onAddItem = viewModel::addItem,
+                onRemoveItem = viewModel::removeItem,
+                onItemNameChange = viewModel::updateItemName,
+                onItemPriceChange = viewModel::updateItemPrice,
+                onItemMembersChange = viewModel::updateItemMembers
+
             )
 
             ErrorText(state.allocationError)
