@@ -84,6 +84,45 @@ object SplitCalculator {
             MemberAmount(member.id, amount)
         }
     }
+
+    fun itemTotal(items: List<ReceiptItem>): Long =
+        items.fold(0L) { total, item ->
+            Math.addExact(total, item.totalCents)
+        }
+
+    fun itemShares(
+        items: List<ReceiptItem>,
+        members: List<Member>
+    ): Map<String, Long> {
+        val result = members.associate { it.id to 0L }.toMutableMap()
+
+        for (item in items) {
+            require(item.totalCents >= 0L) {
+                "Item price cannot be negative"
+            }
+
+            val assigned = item.assignedMemberIds.distinct()
+
+            require(assigned.isNotEmpty()) {
+                "Every item must be assigned to someone"
+            }
+
+            require(assigned.all { it in result }) {
+                "An item is assigned to an unknown member"
+            }
+
+            val amounts = equalShares(item.totalCents, assigned.size)
+
+            assigned.forEachIndexed { index, memberId ->
+                result[memberId] = Math.addExact(
+                    result.getValue(memberId),
+                    amounts[index]
+                )
+            }
+        }
+
+        return result
+    }
     /**
      * Turns balances into a short list of payments ("Alex owes Sarah €14.50").
      * Greedy: biggest debtor pays biggest creditor until everyone is at 0.

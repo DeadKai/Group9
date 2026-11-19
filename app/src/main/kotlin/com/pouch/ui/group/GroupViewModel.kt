@@ -12,6 +12,7 @@ import com.pouch.domain.Receipt
 import com.pouch.domain.Settlement
 import com.pouch.domain.SplitCalculator
 import com.pouch.domain.User
+import com.pouch.domain.ReceiptItem
 import com.pouch.ui.common.SuccessController
 import com.pouch.ui.common.UiState
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -170,13 +171,16 @@ class GroupViewModel(
             onDeleted() //navigate back only after the delete is saved
         }
     }
+
     fun updateReceipt(
         receipt: Receipt,
         title: String,
         amountCents: Long,
         payments: List<MemberAmount>,
         shares: List<MemberAmount>,
-        splitMode: SplitMode
+        splitMode: SplitMode,
+        items: List<ReceiptItem>,
+        onSaved: () -> Unit
     ) {
         viewModelScope.launch {
             try {
@@ -187,10 +191,16 @@ class GroupViewModel(
                     totalCents = amountCents,
                     payments = payments,
                     shares = shares,
-                    splitMode = splitMode
+                    splitMode = splitMode,
+                    items = items
                 )
 
-                success.show("Receipt updated", "\"${title.trim()}\" was saved")
+                success.show(
+                    "Receipt updated",
+                    "\"${title.trim()}\" was saved"
+                )
+
+                onSaved()
 
             } catch (failure: CancellationException) {
                 throw failure
@@ -200,6 +210,7 @@ class GroupViewModel(
             }
         }
     }
+
 
     /** Shows repository failures in the current group's snackbar. */
     private fun runGroupAction(errorMessage: String, action: suspend () -> Unit) {

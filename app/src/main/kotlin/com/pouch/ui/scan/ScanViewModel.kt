@@ -9,7 +9,9 @@ import com.pouch.domain.MemberAmount
 import com.pouch.domain.SplitCalculator
 import com.pouch.domain.SplitMode
 import com.pouch.domain.formatMoney
+import com.pouch.domain.ReceiptItem
 import com.pouch.ocr.ReceiptScanner
+import com.pouch.ui.common.centsText
 import com.pouch.ui.common.SuccessController
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,8 +20,12 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.math.BigDecimal
+import java.util.UUID
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Job
+import kotlin.plus
+import kotlin.text.any
+import kotlin.text.orEmpty
 
 /** Which part of the Scan screen is visible. */
 enum class ScanStep { CHOOSE_SOURCE, READING, EDIT }
@@ -27,6 +33,7 @@ enum class ScanStep { CHOOSE_SOURCE, READING, EDIT }
 data class ScanUiState(
     val step: ScanStep = ScanStep.CHOOSE_SOURCE,
     val groupsLoaded: Boolean = false,
+    val items: List<ReceiptItem> = emptyList(),
     val groupsLoadError: String? = null,
     val groups: List<Group> = emptyList(),
     val groupLocked: Boolean = false,          // true when opened from a Group screen
@@ -65,6 +72,22 @@ fun parseAmountToCents(text: String): Long? {
     return BigDecimal(normalized).movePointRight(2).toLong()
 }
 
+private fun defaultPaymentForTotal(
+    s: ScanUiState,
+    total: Long
+): Map<String, Long> {
+    if (s.payments.size > 1) return s.payments
+
+    val payerId = s.payments.keys.firstOrNull()
+        ?: s.paidByMemberId
+        ?: s.selectedGroup?.members?.firstOrNull()?.id
+
+    return if (payerId != null) {
+        mapOf(payerId to total)
+    } else {
+        emptyMap()
+    }
+}
 private fun Long.toAmountText(): String = "${this / 100}.${(this % 100).toString().padStart(2, '0')}"
 
 class ScanViewModel(
@@ -82,6 +105,92 @@ class ScanViewModel(
         )
     )
     val state: StateFlow<ScanUiState> = _state.asStateFlow()
+
+    fun addItem() {
+        _state.update { s ->
+            s.copy(
+                items = s.items + ReceiptItem(
+                    id = UUID.randomUUID().toString(),
+                    name = "",
+                    totalCents = 0L,
+                    assignedMemberIds = emptyList()
+                ),
+                allocationError = null
+            )
+        }
+    }
+
+    fun updateItemName(id: String, name: String) {
+        _state.update { s ->
+            s.copy(
+                items = s.items.map {
+                    if (it.id == id) it.copy(name = name) else it
+                },
+                allocationError = null
+            )
+        }
+    }
+
+    fun updateItemPrice(id: String, cents: Long) {
+        _state.update { s ->
+            s.copy(
+                items = s.items.map {
+                    if (it.id == id) it.copy(totalCents = cents) else it
+                },
+                allocationError = null
+            )
+        }
+        recalculateItemSplit()
+    }
+
+    fun updateItemMembers(id: String, memberIds: List<String>) {
+        _state.update { s ->
+            s.copy(
+                items = s.items.map {
+                    if (it.id == id) {
+                        it.copy(assignedMemberIds = memberIds)
+                    } else {
+                        it
+                    }
+                },
+                allocationError = null
+            )
+        }
+        recalculateItemSplit()
+    }
+
+    fun removeItem(id: String) {
+        _state.update { s ->
+            s.copy(items = s.items.filterNot { it.id == id })
+        }
+        recalculateItemSplit()
+    }
+
+    private fun recalculateItemSplit() {
+        _state.update { s ->
+            if (s.splitMode != SplitMode.BY_ITEM) return@update s
+
+            val members = s.selectedGroup?.members.orEmpty()
+            val total = SplitCalculator.itemTotal(s.items)
+
+            val validItems = s.items.filter { item ->
+                item.assignedMemberIds.isNotEmpty() &&
+                        item.assignedMemberIds.all { id ->
+                            members.any { it.id == id }
+                        }
+            }
+
+            val shares = SplitCalculator.itemShares(validItems, members)
+
+            s.copy(
+                amount = centsText(total),
+                shares = shares,
+                payments = defaultPaymentForTotal(s, total),
+                allocationError = null,
+                amountError = null
+            )
+        }
+    }
 
     init {
         viewModelScope.launch {
@@ -172,41 +281,72 @@ class ScanViewModel(
     }
 
     fun onSharesChange(shares: Map<String, Long>) {
-        _state.update {
-            it.copy(
+        _state.update { s ->
+            val total = shares.values.fold(0L, Math::addExact)
+
+            s.copy(
                 shares = shares,
+                amount = centsText(total),
+                payments = defaultPaymentForTotal(s, total),
                 splitMode = SplitMode.CUSTOM,
+                amountError = null,
                 allocationError = null
             )
         }
     }
 
-
     fun onSplitModeChange(mode: SplitMode) {
         _state.update { s ->
-            val total = parseAmountToCents(s.amount) ?: 0L
             val members = s.selectedGroup?.members.orEmpty()
 
-            val equalShares = if (members.isNotEmpty()) {
-                SplitCalculator.equalShares(total, members.size)
-            } else {
-                emptyList()
+            val total = when (mode) {
+                SplitMode.BY_ITEM -> SplitCalculator.itemTotal(s.items)
+                else -> parseAmountToCents(s.amount) ?: 0L
             }
 
-            val equalMap = members.mapIndexed { index, member ->
-                member.id to equalShares[index]
-            }.toMap()
+            val shares = when (mode) {
+                SplitMode.EQUAL -> {
+                    if (members.isEmpty()) {
+                        emptyMap()
+                    } else {
+                        members.mapIndexed { index, member ->
+                            member.id to SplitCalculator.equalShares(
+                                total, members.size
+                            )[index]
+                        }.toMap()
+                    }
+                }
+
+                SplitMode.CUSTOM -> {
+                    if (s.splitMode == SplitMode.EQUAL) {
+                        members.mapIndexed { index, member ->
+                            member.id to SplitCalculator.equalShares(
+                                total, members.size
+                            )[index]
+                        }.toMap()
+                    } else {
+                        s.shares
+                    }
+                }
+
+                SplitMode.BY_ITEM -> {
+                    val validItems = s.items.filter { item ->
+                        item.assignedMemberIds.isNotEmpty() &&
+                                item.assignedMemberIds.all { id ->
+                                    members.any { it.id == id }
+                                }
+                    }
+                    SplitCalculator.itemShares(validItems, members)
+                }
+            }
 
             s.copy(
                 splitMode = mode,
-                shares = if (mode == SplitMode.EQUAL ||
-                    s.splitMode == SplitMode.EQUAL
-                ) {
-                    equalMap
-                } else {
-                    s.shares
-                },
-                allocationError = null
+                amount = centsText(total),
+                shares = shares,
+                payments = defaultPaymentForTotal(s, total),
+                allocationError = null,
+                amountError = null
             )
         }
     }
