@@ -1,6 +1,7 @@
 package com.pouch.data
 
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.FirebaseFirestore
 import com.pouch.domain.User
 import kotlinx.coroutines.tasks.await
@@ -10,33 +11,46 @@ class UserRepository(
     private val db: FirebaseFirestore = FirebaseFirestore.getInstance()
 ) {
     private val users = db.collection("users")
-    private val usernames = db.collection("usernames")
 
     fun currentUid(): String =
         auth.currentUser?.uid ?: error("Please log in first")
 
-    suspend fun ensureProfile(): User {
-        val firebaseUser = auth.currentUser ?: error("Not logged in")
+    /** Creates the searchable profile or brings its email in sync with Firebase Auth. */
+    suspend fun ensureProfile(firebaseUser: FirebaseUser = auth.currentUser ?: error("Not logged in")): User {
         val ref = users.document(firebaseUser.uid)
-        val snapshot = ref.get().await()
+        val email = firebaseUser.email.orEmpty().trim().lowercase()
+        val name = firebaseUser.displayName.orEmpty()
+        val existing = ref.get().await().toObject(User::class.java)
+        if (existing != null &&
+            (email.isEmpty() || existing.email == email) &&
+            (name.isBlank() || existing.fullName.isNotBlank())
+        ) return existing
 
-        if (snapshot.exists()) {
-            return snapshot.toObject(User::class.java)
-                ?: error("Could not read profile")
-        }
-
-        val profile = User(
-            uid = firebaseUser.uid,
-            fullName = firebaseUser.displayName.orEmpty(),
-            email = firebaseUser.email.orEmpty(),
-            photoUrl = firebaseUser.photoUrl?.toString().orEmpty()
-        )
-        // Merge protects an existing profile if two devices initialize it.
-        ref.set(
-            profile,
-            com.google.firebase.firestore.SetOptions.merge()
-        ).await()
-        return ref.get().await().toObject(User::class.java) ?: profile
+        // Sign-in and the profile screen can initialize the same account at once.
+        return db.runTransaction { transaction ->
+            val profile = transaction.get(ref).toObject(User::class.java)
+            if (profile == null) {
+                val created = User(
+                    uid = firebaseUser.uid,
+                    fullName = name,
+                    email = email,
+                    photoUrl = firebaseUser.photoUrl?.toString().orEmpty(),
+                )
+                transaction.set(ref, created)
+                created
+            } else {
+                val updated = profile.copy(
+                    fullName = profile.fullName.ifBlank { name },
+                    email = email.ifBlank { profile.email },
+                )
+                val fields = buildMap<String, Any> {
+                    if (profile.fullName != updated.fullName) put("fullName", updated.fullName)
+                    if (profile.email != updated.email) put("email", updated.email)
+                }
+                if (fields.isNotEmpty()) transaction.update(ref, fields)
+                updated
+            }
+        }.await()
     }
 
     suspend fun getUser(uid: String): User? =
@@ -52,61 +66,19 @@ class UserRepository(
             .await()
     }
 
-    suspend fun setUsername(value: String) {
-        val username = value.trim().lowercase()
-        require(username.matches(Regex("[a-z0-9_]{3,20}"))) {
-            "Use 3–20 lowercase letters, numbers or underscores"
-        }
-
+    /** Looks up another account by its complete email address. */
+    suspend fun searchByEmail(value: String): User? {
+        val entered = value.trim()
+        require(Regex("""[^\s@]+@[^\s@]+""").matches(entered)) { "Enter a full email address" }
         val uid = currentUid()
-        val userRef = users.document(uid)
-        val newRef = usernames.document(username)
+        val email = entered.lowercase()
+        if (auth.currentUser?.email?.trim()?.lowercase() == email) return null
 
-        db.runTransaction { transaction ->
-            val userSnap = transaction.get(userRef)
-            val oldUsername =
-                userSnap.getString("username").orEmpty()
-            val reserved = transaction.get(newRef)
-
-            if (reserved.exists() &&
-                reserved.getString("uid") != uid
-            ) {
-                error("Username is already taken")
-            }
-
-            val oldRef = if (oldUsername.isNotBlank() &&
-                oldUsername != username
-            ) usernames.document(oldUsername) else null
-
-            if (oldRef != null) {
-                // Firestore transaction reads must precede writes.
-                val oldReservation = transaction.get(oldRef)
-                if (oldReservation.getString("uid") == uid) {
-                    transaction.delete(oldRef)
-                }
-            }
-
-            transaction.set(newRef, mapOf("uid" to uid))
-            transaction.update(userRef, "username", username)
-            null
-        }.await()
-    }
-
-    /** Searches by username prefix and accepts the optional @ shown in profiles. */
-    suspend fun searchByUsername(value: String): List<User> {
-        val username = value.trim().removePrefix("@").lowercase()
-        if (username.isBlank()) return emptyList()
-
-        return users
-            .orderBy("username")
-            .startAt(username)
-            .endAt(username + "\uf8ff")
-            .limit(20)
-            .get()
-            .await()
-            .documents
-            .mapNotNull { it.toObject(User::class.java) }
-            .filter { it.uid != auth.currentUser?.uid &&
-                    it.username.isNotBlank() }
+        // Support existing profiles that still have the original letter casing.
+        val addresses = listOf(email, entered).distinct()
+        return users.whereIn("email", addresses)
+            .limit(2)
+            .get().await().toObjects(User::class.java)
+            .firstOrNull { it.uid.isNotBlank() && it.uid != uid }
     }
 }

@@ -1,5 +1,6 @@
 package com.pouch.ui.auth
 
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -11,85 +12,70 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.google.firebase.auth.FirebaseUser
 import com.pouch.PouchApp
 import com.pouch.data.AuthRepository
+import com.pouch.data.UserRepository
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlin.coroutines.cancellation.CancellationException
 
-/** Which login action is running, so only that button shows a spinner. */
-enum class AuthAction { EMAIL, GOOGLE }
-
+/** Manages authentication and registers signed-in accounts for friend search. */
 class AuthViewModel(
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val users: UserRepository = UserRepository(),
 ) : ViewModel() {
     val currentUser: StateFlow<FirebaseUser?> = authRepository.currentUser
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), authRepository.user())
 
-    /** null = nothing is loading. */
-    var loadingAction by mutableStateOf<AuthAction?>(null)
+    /** True while a sign-in or sign-up request is running. */
+    var isLoading by mutableStateOf(false)
         private set
-
-    val isLoading: Boolean
-        get() = loadingAction != null
 
     var errorMessage by mutableStateOf<String?>(null)
         private set
 
     fun signIn(email: String, password: String) {
         viewModelScope.launch {
-            loadingAction = AuthAction.EMAIL
+            isLoading = true
             errorMessage = null
             try {
-                authRepository.signIn(email, password)
+                syncSearchProfile(authRepository.signIn(email, password))
             } catch (e: Exception) {
                 errorMessage = e.localizedMessage ?: "Sign-in failed"
             } finally {
-                loadingAction = null
+                isLoading = false
             }
         }
     }
 
     fun signUp(fullName: String, email: String, password: String) {
         viewModelScope.launch {
-            loadingAction = AuthAction.EMAIL
+            isLoading = true
             errorMessage = null
             try {
-                authRepository.signUp(fullName, email, password)
+                syncSearchProfile(authRepository.signUp(fullName, email, password))
             } catch (e: Exception) {
                 errorMessage = e.localizedMessage ?: "Sign-up failed"
             } finally {
-                loadingAction = null
+                isLoading = false
             }
         }
     }
 
-    fun signInWithGoogle(idToken: String) {
+    /** Registers the account for friend search without delaying sign-in. */
+    private fun syncSearchProfile(user: FirebaseUser) {
         viewModelScope.launch {
-            loadingAction = AuthAction.GOOGLE
-            errorMessage = null
             try {
-                authRepository.signInWithGoogle(idToken)
+                users.ensureProfile(user)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                errorMessage = e.localizedMessage ?: "Google sign-in failed"
-            } finally {
-                loadingAction = null
+                Log.w("PouchAuth", "Could not sync profile after sign-in", e)
             }
         }
     }
 
     fun setError(message: String?) {
-        errorMessage = message
-    }
-
-    /** Called when the Google account picker opens, so the Google button shows a spinner right away. */
-    fun startGoogleSignIn() {
-        loadingAction = AuthAction.GOOGLE
-        errorMessage = null
-    }
-
-    /** Called when the Google picker fails or the user closes it. */
-    fun googleSignInFailed(message: String?) {
-        loadingAction = null
         errorMessage = message
     }
 
@@ -115,4 +101,4 @@ class AuthViewModel(
             }
         }
     }
-}
+}

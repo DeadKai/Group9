@@ -1,0 +1,127 @@
+rules_version = '2';
+
+// Complete rules for the Pouch app. Deploy with:
+//   firebase deploy --only firestore:rules
+// Deploying REPLACES the rules in the Firebase console, so compare with what is
+// live there before the first deploy.
+//
+// Firebase UIDs contain no '_', so "<uid>_<uid>" document IDs can be split safely.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function uid() {
+      return request.auth.uid;
+    }
+
+    // ---- Profiles (UserRepository) ----------------------------------------
+    match /users/{userId} {
+      // Any signed-in user can read profiles: needed for username search and friend lists.
+      allow get, list: if signedIn();
+
+      allow create: if signedIn() && uid() == userId
+        && request.resource.data.uid == userId
+        && request.resource.data.get('username', '') == '';
+
+      // A username can only be set together with its reservation in /usernames.
+      allow update: if signedIn() && uid() == userId
+        && request.resource.data.uid == userId
+        && (request.resource.data.get('username', '') == resource.data.get('username', '')
+          || getAfter(/databases/$(database)/documents/usernames/$(request.resource.data.username)).data.uid == userId);
+    }
+
+    // ---- Username reservations: one document per taken username -------------
+    match /usernames/{username} {
+      allow get: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['uid'])
+        && request.resource.data.uid == uid()
+        && getAfter(/databases/$(database)/documents/users/$(uid())).data.username == username;
+      allow update: if signedIn()
+        && resource.data.uid == uid()
+        && request.resource.data.uid == uid();
+      allow delete: if signedIn() && resource.data.uid == uid();
+    }
+
+    // ---- Friend requests: ID is "<senderId>_<receiverId>" (FriendsRepository) ----
+    match /friendRequests/{requestId} {
+      // Uses the ID, not resource.data, so reading a request that doesn't exist yet
+      // (sendRequest's duplicate check) is allowed.
+      allow get: if signedIn() && uid() in requestId.split('_');
+      allow list: if signedIn()
+        && (resource.data.receiverId == uid() || resource.data.senderId == uid());
+
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['id', 'senderId', 'receiverId', 'createdAt', 'status'])
+        && request.resource.data.senderId == uid()
+        && request.resource.data.receiverId != uid()
+        && request.resource.data.id == requestId
+        && requestId == uid() + '_' + request.resource.data.receiverId
+        && request.resource.data.status == 'pending';
+
+      // Accepting, rejecting and cancelling all delete the request.
+      allow delete: if signedIn()
+        && (resource.data.senderId == uid() || resource.data.receiverId == uid());
+    }
+
+    // ---- Friendships: ID is the two UIDs sorted and joined with '_' ----------
+    match /friendships/{friendshipId} {
+      allow get: if signedIn() && uid() in friendshipId.split('_');
+      allow list: if signedIn() && uid() in resource.data.userIds;
+
+      // Only the receiver of a pending request can create the friendship.
+      allow create: if signedIn()
+        && request.resource.data.userIds is list
+        && request.resource.data.userIds.size() == 2
+        && request.resource.data.userIds[0] < request.resource.data.userIds[1]
+        && friendshipId == request.resource.data.userIds[0] + '_' + request.resource.data.userIds[1]
+        && (
+          (request.resource.data.userIds[0] == uid()
+            && exists(/databases/$(database)/documents/friendRequests/$(request.resource.data.userIds[1] + '_' + uid())))
+          || (request.resource.data.userIds[1] == uid()
+            && exists(/databases/$(database)/documents/friendRequests/$(request.resource.data.userIds[0] + '_' + uid())))
+        );
+
+      allow delete: if signedIn() && uid() in resource.data.userIds;
+    }
+
+    // ---- Groups (GroupRepository) -------------------------------------------
+    match /groups/{groupId} {
+      function isMember() {
+        return signedIn() && uid() in resource.data.memberUserIds;
+      }
+
+      function isOwner() {
+        return signedIn() && resource.data.createdByUserId == uid();
+      }
+
+      function validGroup() {
+        return request.resource.data.id == groupId
+          && request.resource.data.memberUserIds is list
+          && request.resource.data.createdByUserId in request.resource.data.memberUserIds
+          && request.resource.data.members is list
+          && request.resource.data.receipts is list;
+      }
+
+      // The app queries with whereArrayContains("memberUserIds", uid), which this allows.
+      allow read: if isMember();
+
+      allow create: if signedIn() && validGroup()
+        && request.resource.data.createdByUserId == uid()
+        && request.resource.data.memberUserIds == [uid()];
+
+      // The owner can change anything; other members can only add, edit or delete receipts.
+      allow update: if validGroup()
+        && request.resource.data.createdByUserId == resource.data.createdByUserId
+        && (isOwner() || (
+          isMember()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['receipts'])
+        ));
+
+      allow delete: if isOwner();
+    }
+  }
+}

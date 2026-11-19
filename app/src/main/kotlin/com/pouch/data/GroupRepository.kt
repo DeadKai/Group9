@@ -128,8 +128,7 @@ class GroupRepository(
         require(friend.uid.isNotBlank() && friend.uid !in group.memberUserIds) {
             "This account is already in the group"
         }
-        val name = friend.fullName.ifBlank { friend.username.ifBlank { friend.email } }
-        require(name.isNotBlank()) { "This friend has no display name" }
+        val name = friend.fullName.ifBlank { "Pouch user" }
         val memberId = "account:${friend.uid}"
         val existing = group.members.firstOrNull { it.id == memberId }
         val updated = if (existing == null) {
