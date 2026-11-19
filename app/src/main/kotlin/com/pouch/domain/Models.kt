@@ -1,15 +1,28 @@
 package com.pouch.domain
 
 import com.google.firebase.firestore.Exclude
+import com.google.firebase.firestore.IgnoreExtraProperties
 import kotlinx.serialization.Serializable
 
 // money is always whole cents (Long) to avoid rounding errors
 
+/** Account profile used for friend search and group membership. */
 @Serializable
+@IgnoreExtraProperties
 data class User(
     val uid: String = "",
     val fullName: String = "",
     val email: String = "",
+    val photoUrl: String = ""
+)
+
+/** Stored friendship invitation between two Firebase accounts. */
+data class FriendRequest(
+    val id: String = "",
+    val senderId: String = "",
+    val receiverId: String = "",
+    val createdAt: Long = 0L,
+    val status: String = "pending",
 )
 
 @Serializable
@@ -41,14 +54,15 @@ data class ReceiptSplit(
 )
 @Serializable
 data class MemberAmount(
-    val memberId: String,
-    val amountCents: Long
+    val memberId: String = "",
+    val amountCents: Long = 0L
 )
 
 @Serializable
 enum class SplitMode {
     EQUAL,
-    CUSTOM
+    CUSTOM,
+    BY_ITEM
 }
 
 @Serializable
@@ -88,6 +102,7 @@ data class Group(
     val modifiedAt: Long = createdAt,
     val members: List<Member> = emptyList(),
     val receipts: List<Receipt> = emptyList(),
+    val memberUserIds: List<String> = emptyList(),
 ) {
     @get:Exclude
     val totalSpentCents: Long get() = receipts.sumOf { it.totalCents }

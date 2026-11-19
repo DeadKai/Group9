@@ -1,17 +1,23 @@
-
 package com.pouch.ui.common
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -21,6 +27,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.pouch.domain.Member
 import com.pouch.domain.MemberAmount
+import com.pouch.domain.ReceiptItem
 import com.pouch.domain.SplitCalculator
 import com.pouch.domain.SplitMode
 import java.math.BigDecimal
@@ -74,20 +81,6 @@ fun validateAllocations(
 
     return amounts to null
 }
-
-fun equalAllocations(
-    members: List<Member>,
-    total: Long
-): List<MemberAmount> {
-    if (members.isEmpty()) return emptyList()
-
-    return members.zip(
-        SplitCalculator.equalShares(total, members.size)
-    ) { member, amount ->
-        MemberAmount(member.id, amount)
-    }
-}
-
 @Composable
 fun ReceiptSplitEditor(
     members: List<Member>,
@@ -97,7 +90,13 @@ fun ReceiptSplitEditor(
     splitMode: SplitMode,
     onSplitModeChange: (SplitMode) -> Unit,
     onPaymentsChange: (Map<String, Long>) -> Unit,
-    onSharesChange: (Map<String, Long>) -> Unit
+    onSharesChange: (Map<String, Long>) -> Unit,
+    items: List<ReceiptItem> = emptyList(),
+    onAddItem: () -> Unit = {},
+    onRemoveItem: (String) -> Unit = {},
+    onItemNameChange: (String, String) -> Unit = { _, _ -> },
+    onItemPriceChange: (String, Long) -> Unit = { _, _ -> },
+    onItemMembersChange: (String, List<String>) -> Unit = { _, _ -> }
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -125,6 +124,9 @@ fun ReceiptSplitEditor(
         )
 
         Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             FilterChip(
@@ -142,18 +144,99 @@ fun ReceiptSplitEditor(
                 },
                 label = { Text("Custom split") }
             )
+            FilterChip(
+                selected = splitMode == SplitMode.BY_ITEM,
+                onClick = { onSplitModeChange(SplitMode.BY_ITEM) },
+                label = { Text("By item") }
+            )
         }
 
-        members.forEach { member ->
-            AmountField(
-                label = member.name,
-                amountCents = shares[member.id] ?: 0L,
-                enabled = splitMode == SplitMode.CUSTOM,
-                onAmountChange = { amount ->
-                    onSharesChange(
-                        shares + (member.id to amount)
-                    )
+        if (splitMode != SplitMode.BY_ITEM) {
+            members.forEach { member ->
+                AmountField(
+                    label = member.name,
+                    amountCents = shares[member.id] ?: 0L,
+                    enabled = splitMode == SplitMode.CUSTOM,
+                    onAmountChange = { amount ->
+                        onSharesChange(shares + (member.id to amount))
+                    }
+                )
+            }
+        }
+
+        if (splitMode == SplitMode.BY_ITEM) {
+            Text(
+                "Add items and choose who owes for each one.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            items.forEachIndexed { index, item ->
+                key(item.id) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Item ${index + 1}")
+
+                        OutlinedTextField(
+                            value = item.name,
+                            onValueChange = {
+                                onItemNameChange(item.id, it)
+                            },
+                            label = { Text("Item name") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        AmountField(
+                            label = "Price",
+                            amountCents = item.totalCents,
+                            onAmountChange = {
+                                onItemPriceChange(item.id, it)
+                            }
+                        )
+
+                        Text("Who is this item for?")
+
+                        members.forEach { member ->
+                            FilterChip(
+                                selected = member.id in item.assignedMemberIds,
+                                onClick = {
+                                    val selected =
+                                        item.assignedMemberIds.toMutableList()
+
+                                    if (member.id in selected) {
+                                        selected.remove(member.id)
+                                    } else {
+                                        selected.add(member.id)
+                                    }
+
+                                    onItemMembersChange(item.id, selected)
+                                },
+                                label = { Text(member.name) }
+                            )
+                        }
+
+                        TextButton(
+                            onClick = { onRemoveItem(item.id) }
+                        ) {
+                            Text("Remove item")
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+                    }
                 }
+            }
+
+            Button(
+                onClick = onAddItem,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("+ Add item")
+            }
+
+            Text(
+                "Items total: ${centsText(items.sumOf { it.totalCents })} €",
+                style = MaterialTheme.typography.titleMedium
             )
         }
 

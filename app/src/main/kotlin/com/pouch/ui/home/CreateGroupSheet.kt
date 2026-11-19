@@ -47,7 +47,7 @@ import com.pouch.ui.common.pouchViewModel
 fun CreateGroupSheet(
     onDismiss: () -> Unit,
     onCreated: (String) -> Unit,
-    viewModel: CreateGroupViewModel = pouchViewModel { CreateGroupViewModel(it.groupRepository) },
+    viewModel: CreateGroupViewModel = pouchViewModel { CreateGroupViewModel(it.groupRepository, it.success) },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -131,6 +131,7 @@ fun CreateGroupSheet(
                 }
             }
 
+            state.saveError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Spacer(Modifier.height(24.dp))
             Button(
                 onClick = viewModel::save,
