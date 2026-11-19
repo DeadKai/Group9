@@ -1,6 +1,9 @@
 package com.pouch.ui.home
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -13,7 +16,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -25,10 +27,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -38,7 +40,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pouch.domain.Group
 import com.pouch.domain.formatMoney
-import com.pouch.ui.common.EmptyView
 import com.pouch.ui.common.ErrorView
 import com.pouch.ui.common.LoadingView
 import com.pouch.ui.common.UiState
@@ -50,62 +51,23 @@ import com.pouch.ui.theme.PouchColors
 fun HomeScreen(
     onOpenGroup: (String) -> Unit,
     onScan: () -> Unit,
-    onSignOut: () -> Unit = {},
-    onProfile: () -> Unit,
-    onSettings: () -> Unit,
     onOpenBillHistory: () -> Unit,
-    //onSignOut: () -> Unit = {},
     viewModel: HomeViewModel = pouchViewModel { HomeViewModel(it.groupRepository) },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showCreateGroup by rememberSaveable { mutableStateOf(false) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Pouch") },
-                actions = {
-                    TextButton(onClick = onOpenBillHistory) {
-                        Text("Bill History")
-                    }
-                    IconButton(onClick = { showCreateGroup = true }) {
-                        Icon(Icons.Filled.Add, contentDescription = "New group")
-                    }
-                    IconButton(onClick = onSettings) {
-                        Icon(Icons.Filled.Settings, contentDescription = "Settings")
-                    }
-                    IconButton(onClick = onProfile) {
-                        Icon(
-                            Icons.Filled.AccountCircle,
-                            contentDescription = "My profile"
-                        )
-                    }
-                },
-            )
-        },
-        floatingActionButton = {
-            if (state is UiState.Success) {
-                // Scanning a receipt is the main action of the app, so it gets the big button.
-                ExtendedFloatingActionButton(
-                    onClick = onScan,
-                    icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                    text = { Text("Scan receipt") },
-                )
-            }
-        },
-    ) { padding ->
+    Scaffold { padding ->
         val modifier = Modifier.padding(padding)
         when (val s = state) {
             UiState.Loading -> LoadingView(modifier)
-            UiState.Empty -> EmptyView(
-                title = "No groups yet",
-                message = "Create a group for your roommates, trip or dinner and start adding receipts.",
-                actionLabel = "Create your first group",
-                onAction = { showCreateGroup = true },
-                modifier = modifier,
+            UiState.Empty -> GroupList(
+                emptyList(), HomeBalance(0L, 0L), onOpenGroup, onScan, onOpenBillHistory, { showCreateGroup = true }, modifier,
             )
             is UiState.Error -> ErrorView(s.message, onRetry = {}, modifier = modifier)
-            is UiState.Success -> GroupList(s.data, onOpenGroup, modifier)
+            is UiState.Success -> GroupList(
+                s.data, remember(s.data, viewModel) { viewModel.balanceFor(s.data) }, onOpenGroup, onScan, onOpenBillHistory, { showCreateGroup = true }, modifier,
+            )
         }
     }
 
@@ -120,13 +82,55 @@ fun HomeScreen(
     }
 }
 
+/** Displays the spending overview and group cards in one scrollable list. */
 @Composable
-private fun GroupList(groups: List<Group>, onOpenGroup: (String) -> Unit, modifier: Modifier) {
+private fun GroupList(
+    groups: List<Group>,
+    balance: HomeBalance,
+    onOpenGroup: (String) -> Unit,
+    onScan: () -> Unit,
+    onHistory: () -> Unit,
+    onCreate: () -> Unit,
+    modifier: Modifier,
+) {
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 96.dp),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        item {
+            val colors = MaterialTheme.colorScheme
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("Pouch", style = MaterialTheme.typography.headlineSmall)
+                Column(
+                    Modifier.fillMaxWidth().clip(MaterialTheme.shapes.large)
+                        .background(colors.primaryContainer)
+                        .padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text("Net balance", color = colors.onPrimaryContainer)
+                    Text(
+                        (if (balance.net > 0) "+" else "") + balance.net.formatMoney(),
+                        style = MaterialTheme.typography.headlineLarge,
+                        color = colors.onPrimaryContainer,
+                    )
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        BalanceAmount("You're owed", balance.owedToYou, Modifier.weight(1f))
+                        BalanceAmount("You owe", balance.youOwe, Modifier.weight(1f))
+                    }
+                }
+                if (groups.isNotEmpty()) Card(onClick = onScan, modifier = Modifier.fillMaxWidth()) {
+                    Text("Scan receipt", Modifier.padding(16.dp), style = MaterialTheme.typography.titleMedium)
+                }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Groups", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                    TextButton(onClick = onHistory) { Text("Bill history") }
+                }
+            }
+        }
         items(groups, key = { it.id }) { group ->
             Card(
                 onClick = { onOpenGroup(group.id) },
@@ -135,7 +139,13 @@ private fun GroupList(groups: List<Group>, onOpenGroup: (String) -> Unit, modifi
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(group.icon, style = MaterialTheme.typography.headlineSmall)
+                    Box(
+                        Modifier.clip(MaterialTheme.shapes.medium)
+                            .background(MaterialTheme.colorScheme.surfaceVariant).padding(8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(group.icon, style = MaterialTheme.typography.titleLarge)
+                    }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(group.name, style = MaterialTheme.typography.titleSmall)
@@ -149,5 +159,23 @@ private fun GroupList(groups: List<Group>, onOpenGroup: (String) -> Unit, modifi
                 }
             }
         }
+        item {
+            TextButton(onClick = onCreate, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Filled.Add, null)
+                Spacer(Modifier.width(8.dp))
+                Text("New group")
+            }
+        }
+    }
+}
+
+
+/** Shows one side of the account's balance. */
+@Composable
+private fun BalanceAmount(label: String, cents: Long, modifier: Modifier) {
+    val textColor = MaterialTheme.colorScheme.onPrimaryContainer
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = textColor)
+        Text(cents.formatMoney(), style = MaterialTheme.typography.titleMedium, color = textColor)
     }
 }
