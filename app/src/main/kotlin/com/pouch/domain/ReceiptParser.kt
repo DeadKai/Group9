@@ -5,12 +5,14 @@ package com.pouch.domain
  * The user always checks and can correct the result before saving (Stage 2 decision).
  *
  * ORDER differs per shop
- * So the parser never relies order
+ * So the parser never relies on order
  * sorted into a [Kind] and the total is chosen by priority:
  *   1. a real total line (Kokku, Tasuda, Total, "Summa km-ga", ...)
  *   2. Summa + Käibemaks, when there is no total line
  *   3. Summa alone
- *   4. the biggest amount on the receipt (ignoring cash given / change and receipt numbers, codes, phone numbers)
+ *   4. the biggest amount on the receipt (ignoring cash given / change, discounts and receipt numbers, codes, phone numbers)
+ *
+ * The title (shop name) comes from the company's legal-name line, or else the biggest text at the top.
  */
 object ReceiptParser {
 
@@ -19,21 +21,23 @@ object ReceiptParser {
 
     data class Result(val title: String?, val totalCents: Long?)
 
-    private enum class Kind { TOTAL, SUBTOTAL, VAT, PAYMENT, ID, OTHER }
+    private enum class Kind { TOTAL, SUBTOTAL, VAT, DISCOUNT, PAYMENT, ID, OTHER }
 
     // "with VAT" means the line IS the final amount ("Summa km-ga", "Kokku käibemaksuga").
-    private val INCLUDING_VAT = listOf("km-ga", "kmga", "km ga", "käibemaksuga", "incl. vat", "incl vat")
+    private val INCLUDING_VAT = listOf("km-ga", "kmga", "km ga", "käibemaksuga", "incl. vat", "incl vat", "with vat")
     // "without VAT" means it's only the subtotal ("Summa km-ta").
     private val EXCLUDING_VAT = listOf("km-ta", "kmta", "km ta", "käibemaksuta", "excl. vat", "excl vat", "without vat")
     private val SUBTOTAL_WORDS = listOf("vahesumma", "subtotal", "sub-total")
     private val VAT = Regex("""käibemaks|\bkm\b|\bvat\b|\btax\b""")
+    // Discounts / savings ("Oled säästnud 0,40", "Amount of discounts obtained 3,00"). Never the total.
+    private val DISCOUNT = Regex("""discount|allah|soodus|säästnud|kampaania|\bsaved\b""")
     // Card / cash lines: the card amount can confirm the total, cash given must never be the total.
     private val PAYMENT_WORDS = listOf("kaart", "card", "sularaha", "cash", "tagasi", "change", "makstud", "paid")
-    private val TOTAL_WORDS = listOf("kokku", "tasuda", "maksta", "total", "to pay", "amount due")
+    private val TOTAL_WORDS = listOf("kokku", "tasuda", "maksta", "total", "to pay", "amount")
     private val SUM = Regex("""summa|\bsum\b""")
     // Receipt / register / card terminal numbers and codes. Never prices.
     private val ID_WORDS = Regex(
-        """\b(nr|no|tšekk|tsekk|kviitung|arve|kassa|kassir|kmkr|reg|registrikood|tel|terminal|tehing|kood|rrn|auth|aid|id)\b"""
+        """\b(nr|no|tšekk|tšeki|tsekk|kviitung|arve|kassa|kassir|kmkr|reg|registrikood|tel|terminal|tehing|kood|rrn|auth|aid|id)\b"""
     )
 
     /** Biggest amount we believe can be on a receipt (€99 999.99). Anything bigger is a number like a receipt ID. */
@@ -65,6 +69,7 @@ object ReceiptParser {
             INCLUDING_VAT.any { it in t } -> Kind.TOTAL
             EXCLUDING_VAT.any { it in t } -> Kind.SUBTOTAL
             SUBTOTAL_WORDS.any { it in t } -> Kind.SUBTOTAL
+            DISCOUNT.containsMatchIn(t) -> Kind.DISCOUNT
             VAT.containsMatchIn(t) -> Kind.VAT
             PAYMENT_WORDS.any { it in t } -> Kind.PAYMENT
             TOTAL_WORDS.any { it in t } -> Kind.TOTAL
@@ -116,19 +121,62 @@ object ReceiptParser {
     )
 
     /**
-     * The shop name is usually the BIGGEST text at the very TOP of the receipt.
-     * So we take the tallest text line in the top part (ML Kit gives each line's height),
-     * skipping prices, totals, receipt numbers, addresses and greetings. Works for any country.
-     * Without position info (heights are 0) it simply takes the first good line.
+     * Company legal forms, used in most countries. The legal-name line ("Rimi Eesti Food AS",
+     * "Maxima Eesti OÜ", "Lidl Eesti OÜ", "Selver AS") is the most reliable place to find the
+     * shop name, because shop logos at the top are often images that OCR can't read.
+     * Short forms (AS, SA, AB...) must be written in capitals, so the English word "as" doesn't count.
+     */
+    private val LEGAL_FORMS_CAPITALS = setOf("AS", "SA", "AB", "AG", "BV", "NV", "SIA", "UAB")
+    private val LEGAL_FORMS = setOf("OÜ", "OU", "OY", "OYJ", "LTD", "LLC", "INC", "GMBH", "PLC", "CORP", "SRL", "SPA", "APS")
+    private val COUNTRY_WORDS = setOf(
+        "eesti", "estonia", "latvija", "latvia", "lietuva", "lithuania", "suomi", "finland",
+        "sverige", "sweden", "norge", "norway", "danmark", "denmark", "deutschland", "germany", "polska", "poland",
+    )
+
+    /**
+     * 1. The company name from the legal-name line, anywhere on the receipt (Selver prints it at the bottom).
+     * 2. Otherwise the BIGGEST text near the TOP (ML Kit gives each line's height),
+     *    skipping prices, totals, receipt numbers, addresses and greetings.
+     * Without position info (heights are 0) step 2 takes the first good line.
      */
     private fun findTitle(lines: List<Line>): String? {
-        val top = lines.take(maxOf(6, lines.size / 3))
+        lines.firstNotNullOfOrNull { companyName(it.text) }?.let { return tidyName(it) }
 
+        val top = lines.take(maxOf(6, lines.size / 3))
         return top
             .filter { looksLikeName(it.text.trim()) }
             .maxByOrNull { it.bottom - it.top }   // tallest = biggest font; ties keep the first line
             ?.text
             ?.let(::tidyName)
+    }
+
+    /** "Maxima Eesti OÜ Reg. Nr. 10765896" -> "Maxima", "AS Pizza Palace, Tartu" -> "Pizza Palace". */
+    private fun companyName(text: String): String? {
+        val words = text.split(Regex("\\s+")).filter { it.isNotBlank() }
+        val formIndex = words.indexOfFirst(::isLegalForm)
+        if (formIndex < 0) return null
+
+        // Name is before the legal form ("Selver AS") or, if the form comes first, after it ("AS Selver").
+        val candidates = if (formIndex > 0) words.subList(0, formIndex) else words.drop(1)
+        val name = mutableListOf<String>()
+        for (word in candidates) {
+            val clean = word.trim(',', '.', ';', ':')
+            if (clean.lowercase() in COUNTRY_WORDS || clean.any { it.isDigit() } || isLegalForm(word)) break
+            name += clean
+            if (word.endsWith(",")) break
+        }
+        return name.joinToString(" ").takeIf { n -> n.count { it.isLetter() } >= 2 }
+    }
+
+    private fun isLegalForm(word: String): Boolean {
+        val clean = word.replace(".", "").replace(",", "")
+        if (clean.isEmpty()) return false
+        val upper = clean.uppercase()
+        return when (upper) {
+            in LEGAL_FORMS_CAPITALS -> clean == upper   // "AS" yes, "as" no
+            in LEGAL_FORMS -> true
+            else -> false
+        }
     }
 
     private fun looksLikeName(text: String): Boolean {
