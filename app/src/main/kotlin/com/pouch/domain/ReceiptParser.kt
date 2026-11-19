@@ -110,16 +110,49 @@ object ReceiptParser {
             .maxOrNull()
     }
 
-    private fun findTitle(lines: List<Line>): String? =
-        lines.take(5)
-            .map { it.text.trim() }
-            .firstOrNull { text ->
-                val letters = text.count { it.isLetter() }
-                // A store name: some letters, no price, and not mostly digits (e.g. "Tšekk 2165671236")
-                letters >= 3 && amountsIn(text).isEmpty() && text.count { it.isDigit() } < letters &&
-                    !ID_WORDS.containsMatchIn(text.lowercase())
+    /** Lines at the top that are never the shop name: greetings, addresses, web, date/time. */
+    private val NOT_A_NAME = Regex(
+        """tere tulemast|aitäh|welcome|www\.|http|@|\b(tn|mnt|pst|tee|maantee|tänav)\b|\d{2}[.:]\d{2}"""
+    )
+
+    /**
+     * The shop name is usually the BIGGEST text at the very TOP of the receipt.
+     * So we take the tallest text line in the top part (ML Kit gives each line's height),
+     * skipping prices, totals, receipt numbers, addresses and greetings. Works for any country.
+     * Without position info (heights are 0) it simply takes the first good line.
+     */
+    private fun findTitle(lines: List<Line>): String? {
+        val top = lines.take(maxOf(6, lines.size / 3))
+
+        return top
+            .filter { looksLikeName(it.text.trim()) }
+            .maxByOrNull { it.bottom - it.top }   // tallest = biggest font; ties keep the first line
+            ?.text
+            ?.let(::tidyName)
+    }
+
+    private fun looksLikeName(text: String): Boolean {
+        val letters = text.count { it.isLetter() }
+        val lower = text.lowercase()
+        return letters >= 3 &&
+            amountsIn(text).isEmpty() &&
+            kindOf(text) == Kind.OTHER &&                  // not "KOKKU", "Summa", "Kaart", "Kassa 2", ...
+            text.count { it.isDigit() } < letters &&      // not mostly digits (e.g. "Tšekk 2165671236")
+            !ID_WORDS.containsMatchIn(lower) &&
+            !NOT_A_NAME.containsMatchIn(lower)
+    }
+
+    /** "PIZZA PALACE" -> "Pizza Palace", max 60 characters. */
+    private fun tidyName(raw: String): String {
+        val text = raw.trim()
+        val shouted = text.any { it.isLetter() } && text == text.uppercase()
+        val tidy = if (shouted) {
+            text.split(Regex("\\s+")).joinToString(" ") { word ->
+                word.lowercase().replaceFirstChar { it.uppercase() }
             }
-            ?.take(60)
+        } else text
+        return tidy.take(60)
+    }
 
     private fun overlapsVertically(a: Line, b: Line): Boolean {
         if (a.bottom <= a.top || b.bottom <= b.top) return false

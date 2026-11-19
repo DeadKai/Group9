@@ -92,7 +92,7 @@ class ReceiptParserTest {
                 Line("Summa 10,00", 120, 135), Line("Käibemaks 2,40", 140, 155),
             )
         )
-        assertEquals("SELVER", result.title)
+        assertEquals("Selver", result.title)
         assertEquals(1240L, result.totalCents)
     }
 
@@ -128,6 +128,34 @@ class ReceiptParserTest {
     fun `receipt number line is never the title`() {
         val result = ReceiptParser.parse(listOf(Line("Tšekk 2165671236785"), Line("Rimi Kristiine"), Line("Kokku 5,00")))
         assertEquals("Rimi Kristiine", result.title)
+    }
+
+    // ---- shop name ----
+
+    @Test
+    fun `unknown shop - biggest text at the top wins`() {
+        val result = ReceiptParser.parse(
+            listOf(
+                Line("Tere tulemast!", 0, 15),
+                Line("PIZZA PALACE", 20, 70),          // big font
+                Line("Narva mnt 5, Tallinn", 75, 90),
+                Line("Kassa 2", 95, 108),
+                Line("Kokku 23,50", 300, 315),
+            )
+        )
+        assertEquals("Pizza Palace", result.title)
+    }
+
+    @Test
+    fun `small legal-name line loses to the big shop name`() {
+        val result = ReceiptParser.parse(listOf(Line("AS Rimi Eesti Food", 0, 12), Line("Rimi Kristiine", 14, 30)))
+        assertEquals("Rimi Kristiine", result.title)
+    }
+
+    @Test
+    fun `date and time at the top are not the name`() {
+        val result = ReceiptParser.parse(listOf(Line("19.11.2026 14:35", 0, 30), Line("Väike Pood", 32, 80)))
+        assertEquals("Väike Pood", result.title)
     }
 
     @Test
