@@ -207,7 +207,7 @@ private fun EditReceipt(state: ScanUiState, viewModel: ScanViewModel, modifier: 
                     FilterChip(
                         selected = group.id == state.selectedGroupId,
                         onClick = { viewModel.onGroupSelected(group.id) },
-                        label = { Text("${group.icon.emoji} ${group.name}") },
+                        label = { Text("${group.icon} ${group.name}") },
                     )
                 }
             }

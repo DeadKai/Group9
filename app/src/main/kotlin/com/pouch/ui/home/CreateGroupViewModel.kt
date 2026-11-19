@@ -3,7 +3,6 @@ package com.pouch.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pouch.data.GroupRepository
-import com.pouch.domain.GroupIcon
 import com.pouch.ui.common.SuccessController
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -12,10 +11,11 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
 
+val GROUP_EMOJIS = listOf("🏠", "✈️", "🍕", "🛒", "🎉", "🚗", "🏕️", "💼")
 
 data class CreateGroupUiState(
     val name: String = "",
-    val icon: GroupIcon = GroupIcon.entries.first(),
+    val emoji: String = GROUP_EMOJIS.first(),
     val newMemberName: String = "",
     val members: List<String> = emptyList(),
     val nameError: String? = null,
@@ -35,7 +35,7 @@ class CreateGroupViewModel(
     val state: StateFlow<CreateGroupUiState> = _state.asStateFlow()
 
     fun onNameChange(v: String) = _state.update { it.copy(name = v, nameError = null) }
-    fun onIconSelected(v: GroupIcon) = _state.update { it.copy(icon = v) }
+    fun onEmojiSelected(v: String) = _state.update { it.copy(emoji = v) }
     fun onNewMemberChange(v: String) = _state.update { it.copy(newMemberName = v, memberError = null) }
 
     fun addMember() {
@@ -72,7 +72,7 @@ class CreateGroupViewModel(
         _state.update { it.copy(isSaving = true, saveError = null) }
         viewModelScope.launch {
             try {
-                val id = repository.createGroup(s.name, s.icon, s.members)
+                val id = repository.createGroup(s.name, s.emoji, s.members)
                 success.show("Group created", "\"${s.name.trim()}\" is ready.")
                 _state.update { it.copy(isSaving = false, createdGroupId = id) }
             } catch (failure: CancellationException) {
